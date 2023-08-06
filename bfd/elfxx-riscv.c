@@ -1110,6 +1110,9 @@ static struct riscv_implicit_subset riscv_implicit_subsets[] =
   {"v", "d",		check_implicit_always},
   {"v", "zve64d",	check_implicit_always},
   {"v", "zvl128b",	check_implicit_always},
+  {"zvfh", "zvfhmin",	check_implicit_always},
+  {"zvfh", "zfhmin",	check_implicit_always},
+  {"zvfhmin", "zve32f",	check_implicit_always},
   {"zve64d", "d",	check_implicit_always},
   {"zve64d", "zve64f",	check_implicit_always},
   {"zve64f", "zve32f",	check_implicit_always},
@@ -1121,6 +1124,7 @@ static struct riscv_implicit_subset riscv_implicit_subsets[] =
   {"zve64x", "zve32x",	check_implicit_always},
   {"zve64x", "zvl64b",	check_implicit_always},
   {"zve32x", "zvl32b",	check_implicit_always},
+  {"zve32x", "zicsr",	check_implicit_always},
   {"zvl65536b", "zvl32768b",	check_implicit_always},
   {"zvl32768b", "zvl16384b",	check_implicit_always},
   {"zvl16384b", "zvl8192b",	check_implicit_always},
@@ -1132,6 +1136,8 @@ static struct riscv_implicit_subset riscv_implicit_subsets[] =
   {"zvl256b", "zvl128b",	check_implicit_always},
   {"zvl128b", "zvl64b",		check_implicit_always},
   {"zvl64b", "zvl32b",		check_implicit_always},
+  {"zcd", "d",		check_implicit_always},
+  {"zcf", "f",		check_implicit_always},
   {"zfa", "f",		check_implicit_always},
   {"d", "f",		check_implicit_always},
   {"zfh", "zfhmin",	check_implicit_always},
@@ -1160,6 +1166,7 @@ static struct riscv_implicit_subset riscv_implicit_subsets[] =
   {"zvkn", "zvknha",	check_implicit_always},
   {"zvkn", "zvknhb",	check_implicit_always},
   {"zvkn", "zvbb",	check_implicit_always},
+  {"zvkn", "zvkt",	check_implicit_always},
   {"zvkng", "zvkn",	check_implicit_always},
   {"zvkng", "zvkg",	check_implicit_always},
   {"zvknc", "zvkn",	check_implicit_always},
@@ -1167,6 +1174,7 @@ static struct riscv_implicit_subset riscv_implicit_subsets[] =
   {"zvks", "zvksed",	check_implicit_always},
   {"zvks", "zvksh",	check_implicit_always},
   {"zvks", "zvbb",	check_implicit_always},
+  {"zvks", "zvkt",	check_implicit_always},
   {"zvksg", "zvks",	check_implicit_always},
   {"zvksg", "zvkg",	check_implicit_always},
   {"zvksc", "zvks",	check_implicit_always},
@@ -1282,6 +1290,8 @@ static struct riscv_supported_ext riscv_supported_std_z_ext[] =
   {"zve64d",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
   {"zvbb",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
   {"zvbc",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
+  {"zvfh",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
+  {"zvfhmin",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
   {"zvkg",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
   {"zvkn",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
   {"zvkng",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
@@ -1294,6 +1304,7 @@ static struct riscv_supported_ext riscv_supported_std_z_ext[] =
   {"zvks",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
   {"zvksg",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
   {"zvksc",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
+  {"zvkt",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
   {"zvl32b",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
   {"zvl64b",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
   {"zvl128b",		ISA_SPEC_CLASS_DRAFT,		1, 0,  0 },
@@ -1944,6 +1955,13 @@ riscv_parse_check_conflicts (riscv_parse_subset_t *rps)
       && xlen < 64)
     {
       rps->error_handler (_("rv%d does not support the `q' extension"), xlen);
+      no_conflict = false;
+    }
+  if (riscv_lookup_subset (rps->subset_list, "zcf", &subset)
+      && xlen > 32)
+    {
+      rps->error_handler
+	(_("rv%d does not support the `zcf' extension"), xlen);
       no_conflict = false;
     }
   if (riscv_lookup_subset (rps->subset_list, "zfinx", &subset)
