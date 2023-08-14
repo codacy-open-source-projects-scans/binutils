@@ -131,16 +131,6 @@ const float riscv_fli_numval[32] =
   0x1p+3, 0x1p+4, 0x1p+7, 0x1p+8, 0x1p+15, 0x1p+16, 0x0p+0, 0x0p+0
 };
 
-/* The order of overloaded instructions matters.  Label arguments and
-   register arguments look the same. Instructions that can have either
-   for arguments must apear in the correct order in this table for the
-   assembler to pick the right one. In other words, entries with
-   immediate operands must apear after the same instruction with
-   registers.
-
-   Because of the lookup algorithm used, entries with the same opcode
-   name must be contiguous.  */
-
 #define MASK_RS1 (OP_MASK_RS1 << OP_SH_RS1)
 #define MASK_RS2 (OP_MASK_RS2 << OP_SH_RS2)
 #define MASK_RD (OP_MASK_RD << OP_SH_RD)
@@ -328,6 +318,16 @@ match_th_load_pair(const struct riscv_opcode *op,
 
   return rd1 != rd2 && rd1 != rs && rd2 != rs && match_opcode (op, insn);
 }
+
+/* The order of overloaded instructions matters.  Label arguments and
+   register arguments look the same. Instructions that can have either
+   for arguments must apear in the correct order in this table for the
+   assembler to pick the right one. In other words, entries with
+   immediate operands must apear after the same instruction with
+   registers.
+
+   Because of the lookup algorithm used, entries with the same opcode
+   name must be contiguous.  */
 
 const struct riscv_opcode riscv_opcodes[] =
 {
@@ -1606,10 +1606,10 @@ const struct riscv_opcode riscv_opcodes[] =
 {"vmsgeu.vi",  0, INSN_CLASS_V,  "Vd,Vu,0Vm", MATCH_VMSEQVV, MASK_VMSEQVV, match_vs1_eq_vs2, INSN_ALIAS },
 {"vmsgeu.vi",  0, INSN_CLASS_V,  "Vd,Vt,VkVm", MATCH_VMSGTUVI, MASK_VMSGTUVI, match_opcode, INSN_ALIAS },
 
-{"vmsge.vx",   0, INSN_CLASS_V, "Vd,Vt,sVm", 0, (int) M_VMSGE, match_opcode, INSN_MACRO },
-{"vmsge.vx",   0, INSN_CLASS_V, "Vd,Vt,s,VM,VT", 0, (int) M_VMSGE, match_opcode, INSN_MACRO },
-{"vmsgeu.vx",  0, INSN_CLASS_V, "Vd,Vt,sVm", 0, (int) M_VMSGEU, match_opcode, INSN_MACRO },
-{"vmsgeu.vx",  0, INSN_CLASS_V, "Vd,Vt,s,VM,VT", 0, (int) M_VMSGEU, match_opcode, INSN_MACRO },
+{"vmsge.vx",   0, INSN_CLASS_V, "Vd,Vt,sVm", 0, (int) M_VMSGE, match_never, INSN_MACRO },
+{"vmsge.vx",   0, INSN_CLASS_V, "Vd,Vt,s,VM,VT", 0, (int) M_VMSGE, match_never, INSN_MACRO },
+{"vmsgeu.vx",  0, INSN_CLASS_V, "Vd,Vt,sVm", 0, (int) M_VMSGEU, match_never, INSN_MACRO },
+{"vmsgeu.vx",  0, INSN_CLASS_V, "Vd,Vt,s,VM,VT", 0, (int) M_VMSGEU, match_never, INSN_MACRO },
 
 {"vminu.vv",   0, INSN_CLASS_V,  "Vd,Vt,VsVm", MATCH_VMINUVV, MASK_VMINUVV, match_opcode, 0},
 {"vminu.vx",   0, INSN_CLASS_V,  "Vd,Vt,sVm", MATCH_VMINUVX, MASK_VMINUVX, match_opcode, 0},
