@@ -37,21 +37,24 @@
 #define KVX_RA_REGNO (67)
 #define KVX_SP_REGNO (12)
 
-#define TOKEN_NAME(tok) ((tok) == -1 ? "unknown token" : env.tokens_names[(tok) - 1])
+#define O_pseudo_fixup O_md1
+
+#define TOKEN_NAME(tok) \
+  ((tok) <= 0 ? "unknown token" : env.tokens_names[(tok) - 1])
 
 struct token_s {
   char *insn;
   int begin, end;
   int category;
-  long long class_id;
-  unsigned long long val;
+  int64_t class_id;
+  uint64_t val;
 };
 
 struct token_list
 {
   char *tok;
-  unsigned long long val;
-  long long class_id;
+  uint64_t val;
+  int64_t class_id;
   int category;
   int loc;
   struct token_list *next;
@@ -61,7 +64,7 @@ struct token_list
 
 struct token_class {
   const char ** class_values;
-  long long class_id;
+  int64_t class_id;
   int sz;
 };
 

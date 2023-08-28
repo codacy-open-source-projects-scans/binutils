@@ -4535,7 +4535,7 @@ allocate_type_unit_groups_table ()
 static std::unique_ptr<type_unit_group>
 create_type_unit_group (struct dwarf2_cu *cu, sect_offset line_offset_struct)
 {
-  std::unique_ptr<type_unit_group> tu_group (new type_unit_group);
+  auto tu_group = gdb::make_unique<type_unit_group> ();
 
   tu_group->hash.dwo_unit = cu->dwo_unit;
   tu_group->hash.line_sect_off = line_offset_struct;
@@ -9935,8 +9935,15 @@ inherit_abstract_dies (struct die_info *die, struct dwarf2_cu *cu)
 	  if (attr == nullptr)
 	    break;
 
+	  die_info *prev_child_origin_die = child_origin_die;
 	  child_origin_die = follow_die_ref (child_origin_die, attr,
 					     &child_origin_cu);
+
+	  if (prev_child_origin_die == child_origin_die)
+	    {
+	      /* Handle DIE with self-reference.  */
+	      break;
+	    }
 	}
 
       /* If missing DW_AT_abstract_origin, try the corresponding child

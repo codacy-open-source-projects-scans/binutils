@@ -207,15 +207,9 @@ static struct kvx_dis_env env = {
   .kvx_max_dec_registers = 0
 };
 
-static bool
+static void
 kvx_dis_init (struct disassemble_info *info)
 {
-  if (info->arch != bfd_arch_kvx)
-    {
-      (*info->fprintf_func) (info->stream, "error: Unknown architecture\n");
-      return -1;
-    }
-
   env.kvx_arch_size = 32;
   switch (info->mach)
     {
@@ -224,6 +218,7 @@ kvx_dis_init (struct disassemble_info *info)
       /* fallthrough */
     case bfd_mach_kv3_1_usr:
     case bfd_mach_kv3_1:
+    default:
       env.opc_table = kvx_kv3_v1_optab;
       env.kvx_regfiles = kvx_kv3_v1_regfiles;
       env.kvx_registers = kvx_kv3_v1_registers;
@@ -252,26 +247,14 @@ kvx_dis_init (struct disassemble_info *info)
       env.kvx_modifiers = kvx_kv4_v1_modifiers;
       env.kvx_dec_registers = kvx_kv4_v1_dec_registers;
       break;
-
-    default:
-      /* Core not supported.  */
-      (*info->fprintf_func) (info->stream, "disassembling not supported for "
-			     "this KVX core! (core:%d)", (int) info->mach);
-      return -1;
     }
 
   env.kvx_max_dec_registers = env.kvx_regfiles[KVX_REGFILE_DEC_REGISTERS];
 
   if (info->disassembler_options)
-    {
-      parse_kvx_dis_options (info->disassembler_options);
+    parse_kvx_dis_options (info->disassembler_options);
 
-      /* To avoid repeated parsing of these options, we remove them here.  */
-      info->disassembler_options = NULL;
-    }
   env.initialized_p = 1;
-
-  return env.initialized_p;
 }
 
 static int
@@ -556,7 +539,7 @@ struct decoded_insn
       CAT_IMMEDIATE,
     } type;
     /* The value of the operands.  */
-    unsigned long long val;
+    uint64_t val;
     /* If it is an immediate, its sign.  */
     int sign;
     /* If it is an immediate, is it pc relative.  */
@@ -610,20 +593,20 @@ decode_insn (bfd_vma memaddr, insn_t * insn, struct decoded_insn *res)
 	      int flags = op->format[i]->flags;
 	      int shift = op->format[i]->shift;
 	      int bias = op->format[i]->bias;
-	      unsigned long long value = 0;
+	      uint64_t value = 0;
 
 	      for (int bf_idx = 0; bf_idx < bf_nb; bf_idx++)
 		{
 		  int insn_idx = (int) bf[bf_idx].to_offset / 32;
 		  int to_offset = bf[bf_idx].to_offset % 32;
-		  unsigned long long encoded_value =
+		  uint64_t encoded_value =
 		    insn->syllables[insn_idx] >> to_offset;
 		  encoded_value &= (1LL << bf[bf_idx].size) - 1;
 		  value |= encoded_value << bf[bf_idx].from_offset;
 		}
 	      if (flags & kvxSIGNED)
 		{
-		  unsigned long long signbit = 1LL << (width - 1);
+		  uint64_t signbit = 1LL << (width - 1);
 		  value = (value ^ signbit) - signbit;
 		}
 	      value = (value << shift) + bias;
@@ -1073,7 +1056,7 @@ print_insn_kvx (bfd_vma memaddr, struct disassemble_info *info)
 	  wordcount++;
 	}
       while (kvx_has_parallel_bit (bundle_words[wordcount - 1])
-	     && wordcount < KVXMAXBUNDLEWORDS);
+	     && wordcount < KVXMAXBUNDLEWORDS - 1);
       invalid_bundle = kvx_reassemble_bundle (wordcount, &insncount);
     }
 
@@ -1092,7 +1075,8 @@ print_insn_kvx (bfd_vma memaddr, struct disassemble_info *info)
 
   /* Check for extension to right iff this is not the end of bundle.  */
 
-  struct decoded_insn dec = { 0 };
+  struct decoded_insn dec;
+  memset (&dec, 0, sizeof dec);
   if (!invalid_bundle && (found = decode_insn (memaddr, insn, &dec)))
     {
       int ch;
@@ -1143,13 +1127,13 @@ print_insn_kvx (bfd_vma memaddr, struct disassemble_info *info)
 		  {
 		    if (dec.operands[i].width <= 32)
 		      {
-			(*info->fprintf_func) (info->stream, "%d (0x%x)",
-					       (int) dec.operands[i].val,
-					       (int) dec.operands[i].val);
+			(*info->fprintf_func) (info->stream, "%" PRId32 " (0x%" PRIx32 ")",
+					       (int32_t) dec.operands[i].val,
+					       (int32_t) dec.operands[i].val);
 		      }
 		    else
 		      {
-			(*info->fprintf_func) (info->stream, "%lld (0x%llx)",
+			(*info->fprintf_func) (info->stream, "%" PRId64 " (0x%" PRIx64 ")",
 					       dec.operands[i].val,
 					       dec.operands[i].val);
 		      }
@@ -1158,18 +1142,18 @@ print_insn_kvx (bfd_vma memaddr, struct disassemble_info *info)
 		  {
 		    if (dec.operands[i].width <= 32)
 		      {
-			(*info->fprintf_func) (info->stream, "%u (0x%x)",
-					       (unsigned int) dec.operands[i].
+			(*info->fprintf_func) (info->stream, "%" PRIu32 " (0x%" PRIx32 ")",
+					       (uint32_t) dec.operands[i].
 					       val,
-					       (unsigned int) dec.operands[i].
+					       (uint32_t) dec.operands[i].
 					       val);
 		      }
 		    else
 		      {
-			(*info->fprintf_func) (info->stream, "%llu (0x%llx)",
-					       (unsigned long long) dec.
+			(*info->fprintf_func) (info->stream, "%" PRIu64 " (0x%" PRIx64 ")",
+					       (uint64_t) dec.
 					       operands[i].val,
-					       (unsigned long long) dec.
+					       (uint64_t) dec.
 					       operands[i].val);
 		      }
 		  }
@@ -1254,7 +1238,7 @@ decode_prologue_epilogue_bundle (bfd_vma memaddr,
       nb_syl++;
     }
   while (kvx_has_parallel_bit (bundle_words[nb_syl - 1])
-	 && nb_syl < KVXMAXBUNDLEWORDS);
+	 && nb_syl < KVXMAXBUNDLEWORDS - 1);
   if (kvx_reassemble_bundle (nb_syl, &nb_insn))
     return -1;
 
@@ -1265,7 +1249,8 @@ decode_prologue_epilogue_bundle (bfd_vma memaddr,
       insn_t *insn = &bundle_insn[idx_insn];
       int is_add = 0, is_get = 0, is_a_peb_insn = 0, is_copyd = 0;
 
-      struct decoded_insn dec = { 0 };
+      struct decoded_insn dec;
+      memset (&dec, 0, sizeof dec);
       if (!decode_insn (memaddr, insn, &dec))
 	continue;
 
@@ -1334,7 +1319,7 @@ decode_prologue_epilogue_bundle (bfd_vma memaddr,
 	  int flags = fmt->flags;
 	  int shift = fmt->shift;
 	  int bias = fmt->bias;
-	  unsigned long long encoded_value, value = 0;
+	  uint64_t encoded_value, value = 0;
 
 	  for (int bf_idx = 0; bf_idx < bf_nb; bf_idx++)
 	    {
@@ -1346,7 +1331,7 @@ decode_prologue_epilogue_bundle (bfd_vma memaddr,
 	    }
 	  if (flags & kvxSIGNED)
 	    {
-	      unsigned long long signbit = 1LL << (width - 1);
+	      uint64_t signbit = 1LL << (width - 1);
 	      value = (value ^ signbit) - signbit;
 	    }
 	  value = (value << shift) + bias;
