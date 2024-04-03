@@ -19,7 +19,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbcmd.h"
 #include "tui/tui.h"
 #include "tui/tui-hooks.h"
@@ -467,7 +466,7 @@ tui_enable (void)
       tui_set_term_width_to (COLS);
       def_prog_mode ();
 
-      tui_show_frame_info (0);
+      tui_show_frame_info (deprecated_safe_get_selected_frame ());
       tui_set_initial_layout ();
       tui_set_win_focus_to (TUI_SRC_WIN);
       keypad (TUI_CMD_WIN->handle.get (), TRUE);

@@ -16,7 +16,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 #include "linux-low.h"
 #include "nat/linux-osdata.h"
 #include "gdbsupport/agent.h"
@@ -135,7 +134,7 @@ typedef struct
 #endif
 
 /* Does the current host support PTRACE_GETREGSET?  */
-enum tribool have_ptrace_getregset = TRIBOOL_UNKNOWN;
+int have_ptrace_getregset = -1;
 
 /* Return TRUE if THREAD is the leader thread of the process.  */
 

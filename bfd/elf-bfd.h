@@ -1187,7 +1187,7 @@ struct elf_backend_data
   /* The ADJUST_DYNAMIC_SYMBOL function is called by the ELF backend
      linker for every symbol which is defined by a dynamic object and
      referenced by a regular object.  This is called after all the
-     input files have been seen, but before the SIZE_DYNAMIC_SECTIONS
+     input files have been seen, but before the LATE_SIZE_SECTIONS
      function has been called.  The hash table entry should be
      bfd_link_hash_defined ore bfd_link_hash_defweak, and it should be
      defined in a section from a dynamic object.  Dynamic object
@@ -1199,24 +1199,23 @@ struct elf_backend_data
   bool (*elf_backend_adjust_dynamic_symbol)
     (struct bfd_link_info *info, struct elf_link_hash_entry *h);
 
-  /* The ALWAYS_SIZE_SECTIONS function is called by the backend linker
-     after all the linker input files have been seen but before the
-     section sizes have been set.  This is called after
-     ADJUST_DYNAMIC_SYMBOL, but before SIZE_DYNAMIC_SECTIONS.  */
-  bool (*elf_backend_always_size_sections)
+  /* The EARLY_SIZE_SECTIONS and LATE_SIZE_SECTIONS functions are
+     called by the backend linker after all linker input files have
+     been seen and sections have been assigned to output sections, but
+     before the section sizes have been set.  Both of these functions
+     are called even when no dynamic object is seen by the linker.
+     Between them, they must set the sizes of the dynamic sections and
+     other backend specific sections, and may fill in their contents.
+     Most backends need only use LATE_SIZE_SECTIONS.
+     EARLY_SIZE_SECTIONS is called before --export-dynamic makes some
+     symbols dynamic and before ADJUST_DYNAMIC_SYMBOL processes
+     dynamic symbols, LATE_SIZE_SECTIONS afterwards.  The generic ELF
+     linker can handle the .dynsym, .dynstr and .hash sections.
+     Besides those, these functions must handle the .interp section
+     and any other sections created by CREATE_DYNAMIC_SECTIONS.  */
+  bool (*elf_backend_early_size_sections)
     (bfd *output_bfd, struct bfd_link_info *info);
-
-  /* The SIZE_DYNAMIC_SECTIONS function is called by the ELF backend
-     linker after all the linker input files have been seen but before
-     the sections sizes have been set.  This is called after
-     ADJUST_DYNAMIC_SYMBOL has been called on all appropriate symbols.
-     It is only called when linking against a dynamic object.  It must
-     set the sizes of the dynamic sections, and may fill in their
-     contents as well.  The generic ELF linker can handle the .dynsym,
-     .dynstr and .hash sections.  This function must handle the
-     .interp section and any sections created by the
-     CREATE_DYNAMIC_SECTIONS entry point.  */
-  bool (*elf_backend_size_dynamic_sections)
+  bool (*elf_backend_late_size_sections)
     (bfd *output_bfd, struct bfd_link_info *info);
 
   /* The STRIP_ZERO_SIZED_DYNAMIC_SECTIONS function is called by the
@@ -1720,6 +1719,10 @@ struct elf_backend_data
      generic code.  Backends that set this flag need do nothing in the
      backend relocate_section routine for relocatable linking.  */
   unsigned rela_normal : 1;
+
+  /* Whether a relocation is rela_normal. Compared with rela_normal,
+     is_rela_normal can set part of relocations to rela_normal.  */
+  bool (*is_rela_normal) (Elf_Internal_Rela *);
 
   /* Set if DT_REL/DT_RELA/DT_RELSZ/DT_RELASZ should not include PLT
      relocations.  */
@@ -2589,9 +2592,9 @@ extern char *_bfd_elfcore_strndup
   (bfd *, char *, size_t);
 
 extern Elf_Internal_Rela *_bfd_elf_link_read_relocs
-  (bfd *, asection *, void *, Elf_Internal_Rela *, bool);
+  (bfd *, const asection *, void *, Elf_Internal_Rela *, bool);
 extern Elf_Internal_Rela *_bfd_elf_link_info_read_relocs
-  (bfd *, struct bfd_link_info *, asection *, void *, Elf_Internal_Rela *,
+  (bfd *, struct bfd_link_info *, const asection *, void *, Elf_Internal_Rela *,
    bool);
 
 extern bool _bfd_elf_link_output_relocs

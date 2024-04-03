@@ -2649,7 +2649,7 @@ _bfd_elf_link_assign_sym_version (struct elf_link_hash_entry *h, void *data)
 
 static bool
 elf_link_read_relocs_from_section (bfd *abfd,
-				   asection *sec,
+				   const asection *sec,
 				   Elf_Internal_Shdr *shdr,
 				   void *external_relocs,
 				   Elf_Internal_Rela *internal_relocs)
@@ -2746,7 +2746,7 @@ elf_link_read_relocs_from_section (bfd *abfd,
 Elf_Internal_Rela *
 _bfd_elf_link_info_read_relocs (bfd *abfd,
 				struct bfd_link_info *info,
-				asection *o,
+				const asection *o,
 				void *external_relocs,
 				Elf_Internal_Rela *internal_relocs,
 				bool keep_memory)
@@ -2843,7 +2843,7 @@ _bfd_elf_link_info_read_relocs (bfd *abfd,
 
 Elf_Internal_Rela *
 _bfd_elf_link_read_relocs (bfd *abfd,
-			   asection *o,
+			   const asection *o,
 			   void *external_relocs,
 			   Elf_Internal_Rela *internal_relocs,
 			   bool keep_memory)
@@ -4785,7 +4785,7 @@ elf_link_add_object_symbols (bfd *abfd, struct bfd_link_info *info)
     }
 
   if (!bfd_link_relocatable (info)
-      && abfd->lto_slim_object)
+      && bfd_get_lto_type (abfd) == lto_slim_ir_object)
     {
       _bfd_error_handler
 	(_("%pB: plugin needed to handle lto object"), abfd);
@@ -6667,8 +6667,8 @@ bfd_elf_size_dynamic_sections (bfd *output_bfd,
 
   /* The backend may have to create some sections regardless of whether
      we're dynamic or not.  */
-  if (bed->elf_backend_always_size_sections
-      && ! (*bed->elf_backend_always_size_sections) (output_bfd, info))
+  if (bed->elf_backend_early_size_sections
+      && !bed->elf_backend_early_size_sections (output_bfd, info))
     return false;
 
   dynobj = elf_hash_table (info)->dynobj;
@@ -7474,9 +7474,8 @@ NOTE: This behaviour is deprecated and will be removed in a future version of th
 
   /* The backend must work out the sizes of all the other dynamic
      sections.  */
-  if (dynobj != NULL
-      && bed->elf_backend_size_dynamic_sections != NULL
-      && ! (*bed->elf_backend_size_dynamic_sections) (output_bfd, info))
+  if (bed->elf_backend_late_size_sections != NULL
+      && !bed->elf_backend_late_size_sections (output_bfd, info))
     return false;
 
   if (dynobj != NULL && elf_hash_table (info)->dynamic_sections_created)
@@ -11692,7 +11691,10 @@ elf_link_input_bfd (struct elf_final_link_info *flinfo, bfd *input_bfd)
 		    {
 		      rel_hash = PTR_ADD (esdo->rela.hashes, esdo->rela.count);
 		      rela_hash_list = rel_hash;
-		      rela_normal = bed->rela_normal;
+		      if (bed->is_rela_normal != NULL)
+			rela_normal = bed->is_rela_normal (irela);
+		      else
+			rela_normal = bed->rela_normal;
 		    }
 
 		  irela->r_offset = _bfd_elf_section_offset (output_bfd,
