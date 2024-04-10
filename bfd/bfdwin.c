@@ -118,20 +118,14 @@ bfd_free_window (bfd_window *windowp)
 
   if (i->mapped)
     {
-#ifdef HAVE_MMAP
       munmap (i->data, i->size);
       goto no_free;
-#else
-      abort ();
-#endif
     }
 #ifdef HAVE_MPROTECT
   mprotect (i->data, i->size, PROT_READ | PROT_WRITE);
 #endif
   free (i->data);
-#ifdef HAVE_MMAP
  no_free:
-#endif
   i->data = 0;
   /* There should be no more references to i at this point.  */
   free (i);
@@ -157,7 +151,7 @@ bfd_get_file_window (bfd *abfd,
 		     bool writable)
 {
   static int ok_to_map = 1;
-  static size_t pagesize;
+  size_t pagesize = _bfd_pagesize;
   bfd_window_internal *i = windowp->i;
   bfd_size_type size_to_alloc = size;
 
@@ -167,12 +161,6 @@ bfd_get_file_window (bfd *abfd,
 	     windowp, windowp->data, (unsigned long) windowp->size,
 	     windowp->i, writable);
 
-  /* Make sure we know the page size, so we can be friendly to mmap.  */
-  if (pagesize == 0)
-    pagesize = getpagesize ();
-  if (pagesize == 0)
-    abort ();
-
   if (i == NULL)
     {
       i = bfd_zmalloc (sizeof (bfd_window_internal));
@@ -180,7 +168,6 @@ bfd_get_file_window (bfd *abfd,
 	return false;
       i->data = NULL;
     }
-#ifdef HAVE_MMAP
   if (ok_to_map
       && (i->data == NULL || i->mapped == 1)
       && (abfd->flags & BFD_IN_MEMORY) == 0)
@@ -255,9 +242,6 @@ bfd_get_file_window (bfd *abfd,
       else
 	fprintf (stderr, _("not mapping: env var not set\n"));
     }
-#else
-  ok_to_map = 0;
-#endif
 
 #ifdef HAVE_MPROTECT
   if (!writable)
