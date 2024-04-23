@@ -232,6 +232,8 @@ struct elf_link_hash_entry
      a strong defined symbol alias.  U.ALIAS points to a list of aliases,
      the definition having is_weakalias clear.  */
   unsigned int is_weakalias : 1;
+  /* Symbol has a relocation.  */
+  unsigned int has_reloc : 1;
 
   /* String table index in .dynstr if this is a dynamic symbol.  */
   unsigned long dynstr_index;
@@ -757,6 +759,7 @@ struct elf_link_hash_table
   asection *irelifunc;
   asection *dynsym;
   asection *srelrdyn;
+  asection *dynamic;
 };
 
 /* Returns TRUE if the hash table is a struct elf_link_hash_table.  */

@@ -44,7 +44,7 @@ LN_S = @LN_S@
 
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
-INSTALL_DIR = $(SHELL) $(srcdir)/../../mkinstalldirs
+INSTALL_DIR = $(SHELL) $(srcdir)/../../install-sh -d
 
 GDB_DATADIR = @GDB_DATADIR@
 
@@ -429,7 +429,7 @@ maintainer-clean realclean distclean: clean
 .PHONY: install-info install-pdf install-html clean-info
 check installcheck:
 info dvi pdf html:
-install-info install-pdf install-html:
+install-info install-dvi install-pdf install-html:
 clean-info:
 
 # GNU Make has an annoying habit of putting *all* the Makefile variables

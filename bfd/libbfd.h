@@ -1,7 +1,7 @@
 /* DO NOT EDIT!  -*- buffer-read-only: t -*-  This file is automatically
    generated from "libbfd-in.h", "libbfd.c", "bfd.c", "bfdio.c",
-   "archive.c", "archures.c", "bfdwin.c", "cache.c", "hash.c", "linker.c",
-   "opncls.c", "reloc.c", "section.c", "stabs.c" and "targets.c".
+   "archive.c", "archures.c", "cache.c", "hash.c", "linker.c", "opncls.c",
+   "reloc.c", "section.c", "stabs.c" and "targets.c".
    Run "make headers" in your build bfd/ to regenerate.  */
 
 /* libbfd.h -- Declarations used by bfd library *implementation*.
@@ -268,8 +268,6 @@ extern bool _bfd_generic_new_section_hook
   (bfd *, asection *) ATTRIBUTE_HIDDEN;
 extern bool _bfd_generic_get_section_contents
   (bfd *, asection *, void *, file_ptr, bfd_size_type) ATTRIBUTE_HIDDEN;
-extern bool _bfd_generic_get_section_contents_in_window
-  (bfd *, asection *, bfd_window *, file_ptr, bfd_size_type) ATTRIBUTE_HIDDEN;
 
 /* Generic routines to use for BFD_JUMP_TABLE_COPY.  Use
    BFD_JUMP_TABLE_COPY (_bfd_generic).  */
@@ -965,7 +963,29 @@ void _bfd_clear_error_data (void) ATTRIBUTE_HIDDEN;
 
 char *bfd_asprintf (const char *fmt, ...) ATTRIBUTE_HIDDEN;
 
-bfd_error_handler_type _bfd_set_error_handler_caching (bfd *) ATTRIBUTE_HIDDEN;
+/* Cached _bfd_check_format messages are put in this.  */
+struct per_xvec_message
+{
+  struct per_xvec_message *next;
+  char message[];
+};
+
+/* A list of per_xvec_message objects.  The targ field indicates
+   which xvec this list holds; PER_XVEC_NO_TARGET is only set for the
+   root of the list and indicates that the entry isn't yet used.  The
+   abfd field is only needed in the root entry of the list.  */
+struct per_xvec_messages
+{
+  bfd *abfd;
+  const bfd_target *targ;
+  struct per_xvec_message *messages;
+  struct per_xvec_messages *next;
+};
+
+#define PER_XVEC_NO_TARGET ((const bfd_target *) -1)
+struct per_xvec_messages *_bfd_set_error_handler_caching (struct per_xvec_messages *) ATTRIBUTE_HIDDEN;
+
+void _bfd_restore_error_handler_caching (struct per_xvec_messages *) ATTRIBUTE_HIDDEN;
 
 const char *_bfd_get_error_program_name (void) ATTRIBUTE_HIDDEN;
 
@@ -1032,19 +1052,10 @@ void *bfd_arch_default_fill (bfd_size_type count,
     bool is_bigendian,
     bool code) ATTRIBUTE_HIDDEN;
 
-/* Extracted from bfdwin.c.  */
-typedef struct _bfd_window_internal
-{
-  struct _bfd_window_internal *next;
-  void *data;
-  bfd_size_type size;
-  int refcount : 31;           /* should be enough...  */
-  unsigned mapped : 1;         /* 1 = mmap, 0 = malloc */
-}
-bfd_window_internal;
-
 /* Extracted from cache.c.  */
 bool bfd_cache_init (bfd *abfd) ATTRIBUTE_HIDDEN;
+
+bool bfd_cache_set_uncloseable (bfd *abfd, bool value, bool *old) ATTRIBUTE_HIDDEN;
 
 FILE* bfd_open_file (bfd *abfd) ATTRIBUTE_HIDDEN;
 
@@ -3721,15 +3732,6 @@ bool _bfd_write_stab_strings (bfd *, struct stab_info *) ATTRIBUTE_HIDDEN;
 bfd_vma _bfd_stab_section_offset (asection *, void *, bfd_vma) ATTRIBUTE_HIDDEN;
 
 /* Extracted from targets.c.  */
-/* Cached _bfd_check_format messages are put in this.  */
-struct per_xvec_message
-{
-  struct per_xvec_message *next;
-  char message[];
-};
-
-struct per_xvec_message **_bfd_per_xvec_warn (const bfd_target *, size_t) ATTRIBUTE_HIDDEN;
-
 #ifdef __cplusplus
 }
 #endif
