@@ -3380,6 +3380,13 @@ copy_object (bfd *ibfd, bfd *obfd, const bfd_arch_info_type *input_arch)
       symcount = filter_symbols (ibfd, obfd, osympp, isympp, symcount);
     }
 
+  for (long s = 0; s < symcount; s++)
+    if (!bfd_copy_private_symbol_data (ibfd, osympp[s], obfd, osympp[s]))
+      {
+	status = 1;
+	return false;
+      }
+
   if (dhandle != NULL)
     {
       bool res;
@@ -4310,6 +4317,7 @@ setup_section (bfd *ibfd, sec_ptr isection, void *obfdarg)
   if (p != NULL)
     alignment = p->alignment;
   else if (pe_section_alignment != (bfd_vma) -1
+	   && bfd_get_flavour (ibfd) == bfd_target_coff_flavour
 	   && bfd_get_flavour (obfd) == bfd_target_coff_flavour)
     {
       alignment = power_of_two (pe_section_alignment);
