@@ -183,6 +183,8 @@ enum aarch64_feature_bit {
   AARCH64_FEATURE_LSE128,
   /* ARMv8.9-A RAS Extensions.  */
   AARCH64_FEATURE_RASv2,
+  /* Delegated SError exceptions for EL3. */
+  AARCH64_FEATURE_E3DSE,
   /* System Control Register2.  */
   AARCH64_FEATURE_SCTLR2,
   /* Fine Grained Traps.  */
@@ -220,6 +222,8 @@ enum aarch64_feature_bit {
   AARCH64_FEATURE_PMUv3_ICNTR,
   /* System Performance Monitors Extension */
   AARCH64_FEATURE_SPMU,
+  /* System Performance Monitors Extension version 2 */
+  AARCH64_FEATURE_SPMU2,
   /* Performance Monitors Synchronous-Exception-Based Event Extension.  */
   AARCH64_FEATURE_SEBEP,
   /* SVE2.1 and SME2.1 non-widening BFloat16 instructions.  */
@@ -230,6 +234,8 @@ enum aarch64_feature_bit {
   AARCH64_FEATURE_SVE2p1,
   /* RCPC3 instructions.  */
   AARCH64_FEATURE_RCPC3,
+  /* Enhanced Software Step Extension. */
+  AARCH64_FEATURE_STEP2,
   /* Checked Pointer Arithmetic instructions. */
   AARCH64_FEATURE_CPA,
   /* FAMINMAX instructions.  */
@@ -269,6 +275,8 @@ enum aarch64_feature_bit {
   AARCH64_FEATURE_FP8DOT2_SVE,
   /* +sme-f16f16 or +sme-f8f16  */
   AARCH64_FEATURE_SME_F16F16_F8F16,
+  /* Armv9.5-A processors.  */
+  AARCH64_FEATURE_V9_5A,
   AARCH64_NUM_FEATURES
 };
 
@@ -361,6 +369,14 @@ enum aarch64_feature_bit {
 #define AARCH64_ARCH_V9_3A_FEATURES(X)	AARCH64_ARCH_V8_8A_FEATURES (X)
 #define AARCH64_ARCH_V9_4A_FEATURES(X)	(AARCH64_ARCH_V8_9A_FEATURES (X) \
 					 | AARCH64_FEATBIT (X, SVE2p1))
+#define AARCH64_ARCH_V9_5A_FEATURES(X)	(AARCH64_FEATBIT (X, V9_5A)	\
+					 | AARCH64_FEATBIT (X, CPA)	\
+					 | AARCH64_FEATBIT (X, LUT)	\
+					 | AARCH64_FEATBIT (X, FAMINMAX)\
+					 | AARCH64_FEATBIT (X, E3DSE)	\
+					 | AARCH64_FEATBIT (X, SPMU2)	\
+					 | AARCH64_FEATBIT (X, STEP2)	\
+					)
 
 /* Architectures are the sum of the base and extensions.  */
 #define AARCH64_ARCH_V8A(X)	(AARCH64_FEATBIT (X, V8) \
@@ -398,6 +414,8 @@ enum aarch64_feature_bit {
 				 | AARCH64_ARCH_V9_3A_FEATURES (X))
 #define AARCH64_ARCH_V9_4A(X)	(AARCH64_ARCH_V9_3A (X) \
 				 | AARCH64_ARCH_V9_4A_FEATURES (X))
+#define AARCH64_ARCH_V9_5A(X)	(AARCH64_ARCH_V9_4A (X) \
+				 | AARCH64_ARCH_V9_5A_FEATURES (X))
 
 #define AARCH64_ARCH_NONE(X)	0
 
