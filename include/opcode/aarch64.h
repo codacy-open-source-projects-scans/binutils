@@ -789,6 +789,7 @@ enum aarch64_opnd
   AARCH64_OPND_SME_ZA_array_vrsh_2, /* Tile to vector, four registers (H).  */
   AARCH64_OPND_SME_ZA_array_vrss_2, /* Tile to vector, four registers (S). */
   AARCH64_OPND_SME_ZA_array_vrsd_2, /* Tile to vector, four registers (D).  */
+  AARCH64_OPND_SME_ZA_ARRAY4, /* Tile to vector, single (BHSDQ).  */
   AARCH64_OPND_SVE_Za_5,	/* SVE vector register in Za, bits [9,5].  */
   AARCH64_OPND_SVE_Za_16,	/* SVE vector register in Za, bits [20,16].  */
   AARCH64_OPND_SVE_Zd,		/* SVE vector register in Zd.  */
@@ -867,6 +868,14 @@ enum aarch64_opnd
   AARCH64_OPND_SME_Zn_INDEX3_14,    /* Zn[index], bits [9:5] and [16:14].  */
   AARCH64_OPND_SME_Zn_INDEX3_15,    /* Zn[index], bits [9:5] and [17:15].  */
   AARCH64_OPND_SME_Zn_INDEX4_14,    /* Zn[index], bits [9:5] and [17:14].  */
+  AARCH64_OPND_SVE_Zn0_INDEX,	    /* Zn[index], bits [9:5].  */
+  AARCH64_OPND_SVE_Zn1_17_INDEX,    /* Zn[index], bits [9:5,17].  */
+  AARCH64_OPND_SVE_Zn2_18_INDEX,    /* Zn[index], bits [9:5,18:17].  */
+  AARCH64_OPND_SVE_Zn3_22_INDEX,    /* Zn[index], bits [9:5,18:17,22].  */
+  AARCH64_OPND_SVE_Zd0_INDEX,	    /* Zn[index], bits [4:0].  */
+  AARCH64_OPND_SVE_Zd1_17_INDEX,    /* Zn[index], bits [4:0,17].  */
+  AARCH64_OPND_SVE_Zd2_18_INDEX,    /* Zn[index], bits [4:0,18:17].  */
+  AARCH64_OPND_SVE_Zd3_22_INDEX,    /* Zn[index], bits [4:0,18:17,22].  */
   AARCH64_OPND_SME_VLxN_10,	/* VLx2 or VLx4, in bit 10.  */
   AARCH64_OPND_SME_VLxN_13,	/* VLx2 or VLx4, in bit 13.  */
   AARCH64_OPND_SME_ZT0,		/* The fixed token zt0/ZT0 (not encoded).  */
@@ -1059,6 +1068,7 @@ enum aarch64_insn_class
   sme_ldr,
   sme_psel,
   sme_shift,
+  sme_size_12_bh,
   sme_size_12_bhs,
   sme_size_12_hs,
   sme_size_12_b,
@@ -1377,7 +1387,10 @@ extern const aarch64_opcode aarch64_opcode_table[];
 #define F_OPD_SIZE (1ULL << 34)
 /* RCPC3 instruction has the field of 'size'.  */
 #define F_RCPC3_SIZE (1ULL << 35)
-/* Next bit is 36.  */
+/* This instruction need VGx2 or VGx4 mandatorily in the operand passed to
+   assembler.  */
+#define F_VG_REQ (1ULL << 36)
+/* Next bit is 37.  */
 
 /* Instruction constraints.  */
 /* This instruction has a predication constraint on the instruction at PC+4.  */
@@ -1438,6 +1451,12 @@ static inline unsigned int
 get_opcode_dependent_value (const aarch64_opcode *opcode)
 {
   return (opcode->flags >> 24) & 0x7;
+}
+
+static inline bool
+get_opcode_dependent_vg_status (const aarch64_opcode *opcode)
+{
+  return (opcode->flags >> 36) & 0x1;
 }
 
 static inline bool
