@@ -5769,6 +5769,113 @@ optimize_nf_encoding (void)
       i.imm_operands = 0;
       pp.has_nf = false;
     }
+  else if (cpu_arch_isa_flags.bitfield.cpubmi2
+	   && pp.encoding == encoding_default
+	   && (i.operands > 2 || !i.mem_operands)
+	   && (i.types[i.operands - 1].bitfield.dword
+	       || i.types[i.operands - 1].bitfield.qword))
+    {
+      if (i.tm.base_opcode == 0xd2)
+	{
+	  /* Optimize: -O:
+	       <OP> one of sal, sar, shl, shr:
+	       {nf} <OP> %cl, %rN       -> <OP>x %{e,r}cx, %rN, %rN (N < 16)
+	       {nf} <OP> %cl, ..., %rN  -> <OP>x %{e,r}cx, ..., %rN (no eGPR used)
+	   */
+	  gas_assert (i.tm.extension_opcode & 4);
+	  i.tm.operand_types[0] = i.tm.operand_types[i.operands - 1];
+	  /* NB: i.op[0].regs specifying %cl is good enough.  */
+	  i.types[0] = i.types[i.operands - 1];
+	  if (i.operands == 2)
+	    {
+	      i.tm.operand_types[0].bitfield.baseindex = 0;
+	      i.tm.operand_types[2] = i.tm.operand_types[0];
+	      i.op[2].regs = i.op[1].regs;
+	      i.types[2] = i.types[1];
+	      i.reg_operands = i.operands = 3;
+	    }
+	  pp.has_nf = false;
+	  i.tm.opcode_modifier.w = 0;
+	  i.tm.opcode_modifier.evex = 0;
+	  i.tm.opcode_modifier.vex = VEX128;
+	  i.tm.opcode_modifier.vexvvvv = VexVVVV_SRC2;
+	  i.tm.opcode_space = SPACE_0F38;
+	  i.tm.base_opcode = 0xf7;
+	  i.tm.opcode_modifier.opcodeprefix
+	    = !(i.tm.extension_opcode & 1)
+	      ? PREFIX_0X66 /* shlx */
+	      : i.tm.extension_opcode & 2
+		? PREFIX_0XF3 /* sarx */
+		: PREFIX_0XF2 /* shrx */;
+	  i.tm.extension_opcode = None;
+	}
+      else if (i.tm.base_opcode == 0xc0
+	       && i.tm.extension_opcode <= 1
+	       && i.op[0].imms->X_op == O_constant)
+	{
+	  /* Optimize: -O:
+	       {nf} rol $I, %rN       -> rorx $osz-I, %rN, %rN (I != osz-1, N < 16)
+	       {nf} rol $I, ..., %rN  -> rorx $osz-I, ..., %rN (I != osz-1, no eGPR used)
+	       {nf} ror $I, %rN       -> rorx $I, %rN, %rN (I != 1, N < 16)
+	       {nf} ror $I, ..., %rN  -> rorx $I,..., %rN (I != 1, no eGPR used)
+	     NB: rol -> ror transformation for I == osz-1 was already handled above.
+	     NB2: ror with an immediate of 1 uses a different base opcode.
+	   */
+	  if (i.operands == 2)
+	    {
+	      i.tm.operand_types[2] = i.tm.operand_types[1];
+	      i.tm.operand_types[2].bitfield.baseindex = 0;
+	      i.op[2].regs = i.op[1].regs;
+	      i.types[2] = i.types[1];
+	      i.reg_operands = 2;
+	      i.operands = 3;
+	    }
+	  pp.has_nf = false;
+	  i.tm.opcode_modifier.w = 0;
+	  i.tm.opcode_modifier.evex = 0;
+	  i.tm.opcode_modifier.vex = VEX128;
+	  i.tm.opcode_modifier.vexvvvv = 0;
+	  i.tm.opcode_space = SPACE_0F3A;
+	  i.tm.base_opcode = 0xf0;
+	  i.tm.opcode_modifier.opcodeprefix = PREFIX_0XF2;
+	  if (!i.tm.extension_opcode)
+	    i.op[0].imms->X_add_number =
+	      (i.types[i.operands - 1].bitfield.byte
+	       ? 8 : i.types[i.operands - 1].bitfield.word
+		     ? 16 : 64 >> i.types[i.operands - 1].bitfield.dword)
+	      - i.op[0].imms->X_add_number;
+	  i.tm.extension_opcode = None;
+	}
+      else if (i.tm.base_opcode == 0xf6
+	       && i.tm.extension_opcode == 4
+	       && !i.mem_operands
+	       && i.op[0].regs->reg_num == 2
+	       && !(i.op[0].regs->reg_flags & RegRex) )
+	{
+	  /* Optimize: -O:
+	       {nf} mul %edx  -> mulx %eax, %eax, %edx
+	       {nf} mul %rdx  -> mulx %rax, %rax, %rdx
+	   */
+	  i.tm.operand_types[1] = i.tm.operand_types[0];
+	  i.tm.operand_types[1].bitfield.baseindex = 0;
+	  i.tm.operand_types[2] = i.tm.operand_types[1];
+	  i.op[2].regs = i.op[0].regs;
+	  /* NB: %eax is good enough also for 64-bit operand size.  */
+	  i.op[1].regs = i.op[0].regs = reg_eax;
+	  i.types[2] = i.types[1] = i.types[0];
+	  i.reg_operands = i.operands = 3;
+
+	  pp.has_nf = false;
+	  i.tm.opcode_modifier.w = 0;
+	  i.tm.opcode_modifier.evex = 0;
+	  i.tm.opcode_modifier.vex = VEX128;
+	  i.tm.opcode_modifier.vexvvvv = VexVVVV_SRC1;
+	  i.tm.opcode_space = SPACE_0F38;
+	  i.tm.base_opcode = 0xf6;
+	  i.tm.opcode_modifier.opcodeprefix = PREFIX_0XF2;
+	  i.tm.extension_opcode = None;
+	}
+    }
 }
 
 static void
@@ -7850,6 +7957,8 @@ parse_insn (const char *line, char *mnemonic, enum parse_mode mode)
 
   while (1)
     {
+      const char *split;
+
       mnem_p = mnemonic;
       /* Pseudo-prefixes start with an opening figure brace.  */
       if ((*mnem_p = *l) == '{')
@@ -7874,9 +7983,10 @@ parse_insn (const char *line, char *mnemonic, enum parse_mode mode)
 	    }
 	  l++;
 	}
-      /* Pseudo-prefixes end with a closing figure brace.  */
-      if (*mnemonic == '{' && is_space_char (*l))
+      split = l;
+      if (is_space_char (*l))
 	++l;
+      /* Pseudo-prefixes end with a closing figure brace.  */
       if (*mnemonic == '{' && *l == '}')
 	{
 	  *mnem_p++ = *l++;
@@ -7884,12 +7994,10 @@ parse_insn (const char *line, char *mnemonic, enum parse_mode mode)
 	    goto too_long;
 	  *mnem_p = '\0';
 
-	  /* Point l at the closing brace if there's no other separator.  */
-	  if (*l != END_OF_INSN && !is_space_char (*l)
-	      && *l != PREFIX_SEPARATOR)
-	    --l;
+	  if (is_space_char (*l))
+	    ++l;
 	}
-      else if (!is_space_char (*l)
+      else if (l == split
 	       && *l != END_OF_INSN
 	       && (intel_syntax
 		   || (*l != PREFIX_SEPARATOR && *l != ',')))
@@ -7897,7 +8005,7 @@ parse_insn (const char *line, char *mnemonic, enum parse_mode mode)
 	  if (mode != parse_all)
 	    break;
 	  as_bad (_("invalid character %s in mnemonic"),
-		  output_invalid (*l));
+		  output_invalid (*split));
 	  return NULL;
 	}
       if (token_start == l)
@@ -7913,7 +8021,6 @@ parse_insn (const char *line, char *mnemonic, enum parse_mode mode)
       op_lookup (mnemonic);
 
       if (*l != END_OF_INSN
-	  && (!is_space_char (*l) || l[1] != END_OF_INSN)
 	  && current_templates.start
 	  && current_templates.start->opcode_modifier.isprefix)
 	{
@@ -8035,7 +8142,10 @@ parse_insn (const char *line, char *mnemonic, enum parse_mode mode)
 		}
 	    }
 	  /* Skip past PREFIX_SEPARATOR and reset token_start.  */
-	  token_start = ++l;
+	  l += (!intel_syntax && *l == PREFIX_SEPARATOR);
+	  if (is_space_char (*l))
+	    ++l;
+	  token_start = l;
 	}
       else
 	break;
@@ -8127,8 +8237,7 @@ parse_insn (const char *line, char *mnemonic, enum parse_mode mode)
 		}
 	      /* For compatibility reasons accept MOVSD and CMPSD without
 	         operands even in AT&T mode.  */
-	      else if (*l == END_OF_INSN
-		       || (is_space_char (*l) && l[1] == END_OF_INSN))
+	      else if (*l == END_OF_INSN)
 		{
 		  mnem_p[-1] = '\0';
 		  op_lookup (mnemonic);
@@ -8170,8 +8279,9 @@ parse_insn (const char *line, char *mnemonic, enum parse_mode mode)
       l += length;
     }
 
-  if (current_templates.start->opcode_modifier.jump == JUMP
-      || current_templates.start->opcode_modifier.jump == JUMP_BYTE)
+  if ((current_templates.start->opcode_modifier.jump == JUMP
+       || current_templates.start->opcode_modifier.jump == JUMP_BYTE)
+      && *l == ',')
     {
       /* Check for a branch hint.  We allow ",pt" and ",pn" for
 	 predict taken and predict not taken respectively.
@@ -8179,21 +8289,29 @@ parse_insn (const char *line, char *mnemonic, enum parse_mode mode)
 	 and jcxz insns (JumpByte) for current Pentium4 chips.  They
 	 may work in the future and it doesn't hurt to accept them
 	 now.  */
-      if (l[0] == ',' && l[1] == 'p')
+      token_start = l++;
+      if (is_space_char (*l))
+	++l;
+      if (TOLOWER (*l) == 'p' && ISALPHA (l[1])
+	  && (l[2] == END_OF_INSN || is_space_char (l[2])))
 	{
-	  if (l[2] == 't')
+	  if (TOLOWER (l[1]) == 't')
 	    {
 	      if (!add_prefix (DS_PREFIX_OPCODE))
 		return NULL;
-	      l += 3;
+	      l += 2;
 	    }
-	  else if (l[2] == 'n')
+	  else if (TOLOWER (l[1]) == 'n')
 	    {
 	      if (!add_prefix (CS_PREFIX_OPCODE))
 		return NULL;
-	      l += 3;
+	      l += 2;
 	    }
+	  else
+	    l = token_start;
 	}
+      else
+	l = token_start;
     }
   /* Any other comma loses.  */
   if (*l == ',')
