@@ -71,9 +71,6 @@ static char last_char;
 #ifdef TC_V850
 #define LEX_IS_DOUBLEDASH_1ST		12
 #endif
-#ifdef TC_M32R
-#define DOUBLEBAR_PARALLEL
-#endif
 #ifdef DOUBLEBAR_PARALLEL
 #define LEX_IS_DOUBLEBAR_1ST		13
 #endif
@@ -93,7 +90,11 @@ static char last_char;
 static char lex[256] = {
   [' ']  = LEX_IS_WHITESPACE,
   ['\t'] = LEX_IS_WHITESPACE,
+#ifdef CR_EOL
+  ['\r'] = LEX_IS_LINE_SEPARATOR,
+#else
   ['\r'] = LEX_IS_WHITESPACE,
+#endif
   ['\n'] = LEX_IS_NEWLINE,
   [':'] = LEX_IS_COLON,
   ['$'] = LEX_IS_SYMBOL_COMPONENT,
@@ -822,7 +823,7 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen,
 	    {
 	      /* We've read the entire pseudo-op.  If this is the end
 		 of the line, go back to the beginning.  */
-	      if (IS_NEWLINE (ch))
+	      if (IS_NEWLINE (ch) || IS_LINE_SEPARATOR (ch))
 		symver_state = NULL;
 	    }
 	}
@@ -857,7 +858,9 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen,
 	      ++mri_state;
 	    }
 	  else if (*mri_state != '\0'
-		   || (!IS_WHITESPACE (ch) && !IS_NEWLINE (ch)))
+		   || (!IS_WHITESPACE (ch)
+		       && !IS_LINE_SEPARATOR (ch)
+		       && !IS_NEWLINE (ch)))
 	    {
 	      /* We did not get the expected character, or we didn't
 		 get a valid terminating character after seeing the
@@ -1108,6 +1111,8 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen,
 	    }
 	  else if (state == 3)
 	    old_state = 9;
+	  else if (state == 0)
+	    old_state = 11; /* Now seeing label definition.  */
 	  else
 	    old_state = state;
 	  state = 5;
