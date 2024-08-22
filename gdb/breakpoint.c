@@ -3734,8 +3734,7 @@ create_std_terminate_master_breakpoint (void)
   const char *const func_name = "std::terminate()";
 
   scoped_restore_current_program_space restore_pspace;
-  scoped_restore_current_language save_language;
-  set_language (language_cplus);
+  scoped_restore_current_language save_language (language_cplus);
 
   for (struct program_space *pspace : program_spaces)
     {
@@ -12917,6 +12916,13 @@ locations_are_equal (const bp_location_list &a, const bp_location_range &b)
 	return false;
 
       if (a_iter->disabled_by_cond != b_iter->disabled_by_cond)
+	return false;
+
+      /* When a breakpoint is set by address, it is not created as
+	 pending; but then during an solib event or the like it may
+	 acquire a symbol.  So, check this here.  */
+      if (a_iter->symbol != b_iter->symbol
+	  || a_iter->msymbol != b_iter->msymbol)
 	return false;
     }
 

@@ -77,7 +77,7 @@ read_int (char *from)
 {
   char *val = strchr (from, ':');
   if (val)
-    return atoi (val + 1);
+    return (int) strtol (val + 1, NULL, 0);
   return 0;
 }
 
@@ -109,7 +109,8 @@ read_cpuinfo ()
 	    cpu_info.cpu_clk_freq = read_int (temp + 9);
 	  else if (strncmp (temp, "cpu family", 10) == 0)
 	    cpu_info.cpu_family = read_int (temp + 10);
-	  else if ((strncmp (temp, "vendor_id", 9) || strncmp (temp, "mvendorid", 9)) == 0)
+	  else if (strncmp (temp, "vendor_id", 9) == 0
+		   || strncmp (temp, "mvendorid", 9) == 0)
 	    {
 	      if (cpu_info.cpu_vendorstr == NULL)
 		read_str (temp + 9, &cpu_info.cpu_vendorstr);
@@ -129,7 +130,11 @@ read_cpuinfo ()
       fclose (procf);
     }
   if (cpu_info.cpu_vendorstr == NULL)
+#if defined(__aarch64__)
+    cpu_info.cpu_vendorstr = strdup (AARCH64_VENDORSTR_ARM);
+#else
     cpu_info.cpu_vendorstr = GTXT ("Unknown processor");
+#endif
   if (cpu_info.cpu_modelstr == NULL)
     cpu_info.cpu_modelstr = GTXT ("Unknown cpu model");
   return &cpu_info;
