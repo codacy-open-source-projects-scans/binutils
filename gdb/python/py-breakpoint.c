@@ -611,7 +611,7 @@ bppy_set_condition (PyObject *self, PyObject *newvalue, void *closure)
     {
       set_breakpoint_condition (self_bp->bp, exp, 0, false);
     }
-  catch (gdb_exception &ex)
+  catch (const gdb_exception &ex)
     {
       GDB_PY_SET_HANDLE_EXCEPTION (ex);
     }
@@ -640,8 +640,7 @@ bppy_get_commands (PyObject *self, void *closure)
     }
   catch (const gdb_exception &except)
     {
-      gdbpy_convert_exception (except);
-      return NULL;
+      GDB_PY_HANDLE_EXCEPTION (except);
     }
 
   return host_string_to_python_string (stb.c_str ()).release ();
@@ -677,7 +676,7 @@ bppy_set_commands (PyObject *self, PyObject *newvalue, void *closure)
       counted_command_line lines = read_command_lines_1 (reader, 1, nullptr);
       breakpoint_set_commands (self_bp->bp, std::move (lines));
     }
-  catch (gdb_exception &ex)
+  catch (const gdb_exception &ex)
     {
       GDB_PY_SET_HANDLE_EXCEPTION (ex);
     }
@@ -1055,8 +1054,7 @@ bppy_init (PyObject *self, PyObject *args, PyObject *kwargs)
   catch (const gdb_exception &except)
     {
       bppy_pending_object = NULL;
-      gdbpy_convert_exception (except);
-      return -1;
+      GDB_PY_SET_HANDLE_EXCEPTION (except);
     }
 
   BPPY_SET_REQUIRE_VALID ((gdbpy_breakpoint_object *) self);

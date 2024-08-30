@@ -96,6 +96,7 @@
 #include "gdbsupport/thread-pool.h"
 #include "run-on-main-thread.h"
 #include "dwarf2/parent-map.h"
+#include "dwarf2/error.h"
 
 /* When == 1, print basic high level tracing messages.
    When > 1, be more verbose.
@@ -3811,8 +3812,9 @@ read_cutu_die_from_dwo (dwarf2_cu *cu,
       /* This is not an assert because it can be caused by bad debug info.  */
       if (sig_type->signature != cu->header.signature)
 	{
-	  error (_("Dwarf Error: signature mismatch %s vs %s while reading"
-		   " TU at offset %s [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "signature mismatch %s vs %s while reading TU at offset %s"
+		   " [in module %s]"),
 		 hex_string (sig_type->signature),
 		 hex_string (cu->header.signature),
 		 sect_offset_str (dwo_unit->sect_off),
@@ -3909,7 +3911,8 @@ lookup_dwo_unit (dwarf2_cu *cu, die_info *comp_unit_die, const char *dwo_name)
       std::optional<ULONGEST> signature = lookup_dwo_id (cu, comp_unit_die);
 
       if (!signature.has_value ())
-	error (_("Dwarf Error: missing dwo_id for dwo_name %s"
+	error (_(DWARF_ERROR_PREFIX
+		 "missing dwo_id for dwo_name %s"
 		 " [in module %s]"),
 	       dwo_name, bfd_get_filename (per_cu->per_bfd->obfd));
 
@@ -4532,28 +4535,35 @@ process_psymtab_comp_unit (dwarf2_per_cu_data *this_cu,
 			   dwarf2_per_objfile *per_objfile,
 			   cooked_index_storage *storage)
 {
-  cutu_reader reader (this_cu, per_objfile, nullptr, nullptr, false,
-		      storage->get_abbrev_cache ());
+  cutu_reader *reader = storage->get_reader (this_cu);
+  if (reader == nullptr)
+    {
+      cutu_reader new_reader (this_cu, per_objfile, nullptr, nullptr, false,
+			      storage->get_abbrev_cache ());
 
-  if (reader.comp_unit_die == nullptr)
+      if (new_reader.comp_unit_die == nullptr || new_reader.dummy_p)
+	return;
+
+      std::unique_ptr<cutu_reader> copy
+	(new cutu_reader (std::move (new_reader)));
+      reader = storage->preserve (std::move (copy));
+    }
+
+  if (reader->comp_unit_die == nullptr || reader->dummy_p)
     return;
 
-  if (reader.dummy_p)
-    {
-      /* Nothing.  */
-    }
-  else if (this_cu->is_debug_types)
-    build_type_psymtabs_reader (&reader, storage);
-  else if (reader.comp_unit_die->tag != DW_TAG_partial_unit)
+  if (this_cu->is_debug_types)
+    build_type_psymtabs_reader (reader, storage);
+  else if (reader->comp_unit_die->tag != DW_TAG_partial_unit)
     {
       bool nope = false;
       if (this_cu->scanned.compare_exchange_strong (nope, true))
 	{
-	  prepare_one_comp_unit (reader.cu, reader.comp_unit_die,
+	  prepare_one_comp_unit (reader->cu, reader->comp_unit_die,
 				 language_minimal);
 	  gdb_assert (storage != nullptr);
-	  cooked_indexer indexer (storage, this_cu, reader.cu->lang ());
-	  indexer.make_index (&reader);
+	  cooked_indexer indexer (storage, this_cu, reader->cu->lang ());
+	  indexer.make_index (reader);
 	}
     }
 }
@@ -5075,7 +5085,8 @@ create_all_units (dwarf2_per_objfile *per_objfile)
 	  per_objfile->per_bfd->all_units.clear ();
 
 	  /* See enhancement PR symtab/30838.  */
-	  error (_("Dwarf Error: .debug_types section not supported in dwz file"));
+	  error (_(DWARF_ERROR_PREFIX
+		   ".debug_types section not supported in dwz file"));
 	}
     }
 
@@ -5117,8 +5128,9 @@ peek_die_abbrev (const die_reader_specs &reader,
     = reader.abbrev_table->lookup_abbrev (abbrev_number);
   if (!abbrev)
     {
-      error (_("Dwarf Error: Could not find abbrev number %d in %s"
-	       " at offset %s [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "Could not find abbrev number %d in %s at offset %s"
+	       " [in module %s]"),
 	     abbrev_number, cu->per_cu->is_debug_types ? "TU" : "CU",
 	     sect_offset_str (cu->header.sect_off), bfd_get_filename (abfd));
     }
@@ -5302,8 +5314,8 @@ skip_one_die (const struct die_reader_specs *reader, const gdb_byte *info_ptr,
 	  goto skip_attribute;
 
 	default:
-	  error (_("Dwarf Error: Cannot handle %s "
-		   "in DWARF reader [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "Cannot handle %s in DWARF reader [in module %s]"),
 		 dwarf_form_name (form),
 		 bfd_get_filename (abfd));
 	}
@@ -6158,7 +6170,8 @@ process_full_comp_unit (dwarf2_cu *cu, enum language pretend_language)
     case DW_TAG_type_unit:
       break;
     default:
-      error (_("Dwarf Error: unexpected tag '%s' at offset %s [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "unexpected tag '%s' at offset %s [in module %s]"),
 	     dwarf_tag_name (cu->dies->tag),
 	     sect_offset_str (cu->per_cu->sect_off),
 	     objfile_name (per_objfile->objfile));
@@ -6322,8 +6335,9 @@ process_imported_unit_die (struct die_info *die, struct dwarf2_cu *cu)
   /* For now we don't handle imported units in type units.  */
   if (cu->per_cu->is_debug_types)
     {
-      error (_("Dwarf Error: DW_TAG_imported_unit is not"
-	       " supported in type units [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "DW_TAG_imported_unit is not supported in type units"
+	       " [in module %s]"),
 	     objfile_name (cu->per_objfile->objfile));
     }
 
@@ -7779,8 +7793,9 @@ create_dwo_cu_reader (const struct die_reader_specs *reader,
   std::optional<ULONGEST> signature = lookup_dwo_id (cu, comp_unit_die);
   if (!signature.has_value ())
     {
-      complaint (_("Dwarf Error: debug entry at offset %s is missing"
-		   " its dwo_id [in module %s]"),
+      complaint (_(DWARF_ERROR_PREFIX
+		   "debug entry at offset %s is missing its dwo_id"
+		   " [in module %s]"),
 		 sect_offset_str (sect_off), dwo_file->dwo_name.c_str ());
       return;
     }
@@ -8057,14 +8072,15 @@ create_dwp_hash_table (dwarf2_per_objfile *per_objfile,
 
   if (version != 1 && version != 2 && version != 5)
     {
-      error (_("Dwarf Error: unsupported DWP file version (%s)"
-	       " [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "unsupported DWP file version (%s) [in module %s]"),
 	     pulongest (version), dwp_file->name);
     }
   if (nr_slots != (nr_slots & -nr_slots))
     {
-      error (_("Dwarf Error: number of slots in DWP hash table (%s)"
-	       " is not power of 2 [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "number of slots in DWP hash table (%s) is not power of 2"
+	       " [in module %s]"),
 	     pulongest (nr_slots), dwp_file->name);
     }
 
@@ -8111,14 +8127,16 @@ create_dwp_hash_table (dwarf2_per_objfile *per_objfile,
 
       if (nr_columns < 2)
 	{
-	  error (_("Dwarf Error: bad DWP hash table, too few columns"
-		   " in section table [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "bad DWP hash table, too few columns in section table"
+		   " [in module %s]"),
 		 dwp_file->name);
 	}
       if (nr_columns > MAX_NR_V2_DWO_SECTIONS)
 	{
-	  error (_("Dwarf Error: bad DWP hash table, too many columns"
-		   " in section table [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "bad DWP hash table, too many columns in section table"
+		   " [in module %s]"),
 		 dwp_file->name);
 	}
       memset (ids, 255, sizeof_ids);
@@ -8129,13 +8147,15 @@ create_dwp_hash_table (dwarf2_per_objfile *per_objfile,
 
 	  if (id < DW_SECT_MIN || id > DW_SECT_MAX)
 	    {
-	      error (_("Dwarf Error: bad DWP hash table, bad section id %d"
-		       " in section table [in module %s]"),
+	      error (_(DWARF_ERROR_PREFIX
+		       "bad DWP hash table, bad section id %d in section table"
+		       " [in module %s]"),
 		     id, dwp_file->name);
 	    }
 	  if (ids_seen[id] != -1)
 	    {
-	      error (_("Dwarf Error: bad DWP hash table, duplicate section"
+	      error (_(DWARF_ERROR_PREFIX
+		       "bad DWP hash table, duplicate section"
 		       " id %d in section table [in module %s]"),
 		     id, dwp_file->name);
 	    }
@@ -8147,15 +8167,17 @@ create_dwp_hash_table (dwarf2_per_objfile *per_objfile,
 	   + (ids_seen[DW_SECT_TYPES] != -1))
 	  != 1)
 	{
-	  error (_("Dwarf Error: bad DWP hash table, missing/duplicate"
+	  error (_(DWARF_ERROR_PREFIX
+		   "bad DWP hash table, missing/duplicate"
 		   " DWO info/types section [in module %s]"),
 		 dwp_file->name);
 	}
       /* Must have an abbrev section.  */
       if (ids_seen[DW_SECT_ABBREV] == -1)
 	{
-	  error (_("Dwarf Error: bad DWP hash table, missing DWO abbrev"
-		   " section [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "bad DWP hash table, missing DWO abbrev section"
+		   " [in module %s]"),
 		 dwp_file->name);
 	}
       htab->section_pool.v2.offsets = ids_ptr + sizeof (uint32_t) * nr_columns;
@@ -8166,8 +8188,8 @@ create_dwp_hash_table (dwarf2_per_objfile *per_objfile,
 					  * nr_units * nr_columns))
 	  > index_end)
 	{
-	  error (_("Dwarf Error: DWP index section is corrupt (too small)"
-		   " [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "DWP index section is corrupt (too small) [in module %s]"),
 		 dwp_file->name);
 	}
     }
@@ -8181,14 +8203,16 @@ create_dwp_hash_table (dwarf2_per_objfile *per_objfile,
 
       if (nr_columns < 2)
 	{
-	  error (_("Dwarf Error: bad DWP hash table, too few columns"
-		   " in section table [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "bad DWP hash table, too few columns in section table"
+		   " [in module %s]"),
 		 dwp_file->name);
 	}
       if (nr_columns > MAX_NR_V5_DWO_SECTIONS)
 	{
-	  error (_("Dwarf Error: bad DWP hash table, too many columns"
-		   " in section table [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "bad DWP hash table, too many columns in section table"
+		   " [in module %s]"),
 		 dwp_file->name);
 	}
       memset (ids, 255, sizeof_ids);
@@ -8199,13 +8223,15 @@ create_dwp_hash_table (dwarf2_per_objfile *per_objfile,
 
 	  if (id < DW_SECT_MIN || id > DW_SECT_MAX_V5)
 	    {
-	      error (_("Dwarf Error: bad DWP hash table, bad section id %d"
-		       " in section table [in module %s]"),
+	      error (_(DWARF_ERROR_PREFIX
+		       "bad DWP hash table, bad section id %d in section table"
+		       " [in module %s]"),
 		     id, dwp_file->name);
 	    }
 	  if (ids_seen[id] != -1)
 	    {
-	      error (_("Dwarf Error: bad DWP hash table, duplicate section"
+	      error (_(DWARF_ERROR_PREFIX
+		       "bad DWP hash table, duplicate section"
 		       " id %d in section table [in module %s]"),
 		     id, dwp_file->name);
 	    }
@@ -8215,15 +8241,17 @@ create_dwp_hash_table (dwarf2_per_objfile *per_objfile,
       /* Must have seen an info section.  */
       if (ids_seen[DW_SECT_INFO_V5] == -1)
 	{
-	  error (_("Dwarf Error: bad DWP hash table, missing/duplicate"
+	  error (_(DWARF_ERROR_PREFIX
+		   "bad DWP hash table, missing/duplicate"
 		   " DWO info/types section [in module %s]"),
 		 dwp_file->name);
 	}
       /* Must have an abbrev section.  */
       if (ids_seen[DW_SECT_ABBREV_V5] == -1)
 	{
-	  error (_("Dwarf Error: bad DWP hash table, missing DWO abbrev"
-		   " section [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "bad DWP hash table, missing DWO abbrev section"
+		   " [in module %s]"),
 		 dwp_file->name);
 	}
       htab->section_pool.v5.offsets = ids_ptr + sizeof (uint32_t) * nr_columns;
@@ -8234,8 +8262,8 @@ create_dwp_hash_table (dwarf2_per_objfile *per_objfile,
 					  * nr_units * nr_columns))
 	  > index_end)
 	{
-	  error (_("Dwarf Error: DWP index section is corrupt (too small)"
-		   " [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "DWP index section is corrupt (too small) [in module %s]"),
 		 dwp_file->name);
 	}
     }
@@ -8378,7 +8406,8 @@ create_dwo_unit_in_dwp_v1 (dwarf2_per_objfile *per_objfile,
 	break;
       if (section_nr >= dwp_file->num_sections)
 	{
-	  error (_("Dwarf Error: bad DWP hash table, section number too large"
+	  error (_(DWARF_ERROR_PREFIX
+		   "bad DWP hash table, section number too large"
 		   " [in module %s]"),
 		 dwp_file->name);
 	}
@@ -8386,8 +8415,8 @@ create_dwo_unit_in_dwp_v1 (dwarf2_per_objfile *per_objfile,
       sectp = dwp_file->elf_sections[section_nr];
       if (! locate_v1_virtual_dwo_sections (sectp, &sections))
 	{
-	  error (_("Dwarf Error: bad DWP hash table, invalid section found"
-		   " [in module %s]"),
+	  error (_(DWARF_ERROR_PREFIX
+		   "bad DWP hash table, invalid section found [in module %s]"),
 		 dwp_file->name);
 	}
     }
@@ -8396,14 +8425,14 @@ create_dwo_unit_in_dwp_v1 (dwarf2_per_objfile *per_objfile,
       || sections.info_or_types.empty ()
       || sections.abbrev.empty ())
     {
-      error (_("Dwarf Error: bad DWP hash table, missing DWO sections"
-	       " [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "bad DWP hash table, missing DWO sections [in module %s]"),
 	     dwp_file->name);
     }
   if (i == MAX_NR_V1_DWO_SECTIONS)
     {
-      error (_("Dwarf Error: bad DWP hash table, too many DWO sections"
-	       " [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "bad DWP hash table, too many DWO sections [in module %s]"),
 	     dwp_file->name);
     }
 
@@ -8501,8 +8530,9 @@ create_dwp_v2_or_v5_section (dwarf2_per_objfile *per_objfile,
   if (sectp == NULL
       || offset + size > bfd_section_size (sectp))
     {
-      error (_("Dwarf Error: Bad DWP V2 or V5 section info, doesn't fit"
-	       " in section %s [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "Bad DWP V2 or V5 section info, doesn't fit in section %s"
+	       " [in module %s]"),
 	     sectp ? bfd_section_name (sectp) : "<unknown>",
 	     objfile_name (per_objfile->objfile));
     }
@@ -8919,8 +8949,8 @@ lookup_dwo_unit_in_dwp (dwarf2_per_objfile *per_objfile,
       hash = (hash + hash2) & mask;
     }
 
-  error (_("Dwarf Error: bad DWP hash table, lookup didn't terminate"
-	   " [in module %s]"),
+  error (_(DWARF_ERROR_PREFIX
+	   "bad DWP hash table, lookup didn't terminate [in module %s]"),
 	 dwp_file->name);
 }
 
@@ -9392,8 +9422,9 @@ open_and_init_dwp_file (dwarf2_per_objfile *per_objfile)
       /* Technically speaking, we should try to limp along, but this is
 	 pretty bizarre.  We use pulongest here because that's the established
 	 portability solution (e.g, we cannot use %u for uint32_t).  */
-      error (_("Dwarf Error: DWP file CU version %s doesn't match"
-	       " TU version %s [in DWP file %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "DWP file CU version %s doesn't match TU version %s"
+	       " [in DWP file %s]"),
 	     pulongest (dwp_file->cus->version),
 	     pulongest (dwp_file->tus->version), dwp_name.c_str ());
     }
@@ -13255,7 +13286,6 @@ process_enumeration_scope (struct die_info *die, struct dwarf2_cu *cu)
   if (die->child != NULL)
     {
       struct die_info *child_die;
-      const char *name;
 
       child_die = die->child;
       while (child_die && child_die->tag)
@@ -13265,11 +13295,7 @@ process_enumeration_scope (struct die_info *die, struct dwarf2_cu *cu)
 	      process_die (child_die, cu);
 	    }
 	  else
-	    {
-	      name = dwarf2_name (child_die, cu);
-	      if (name)
-		new_symbol (child_die, this_type, cu);
-	    }
+	    new_symbol (child_die, this_type, cu);
 
 	  child_die = child_die->sibling;
 	}
@@ -15879,7 +15905,8 @@ read_full_die_1 (const struct die_reader_specs *reader,
 
   abbrev = reader->abbrev_table->lookup_abbrev (abbrev_number);
   if (!abbrev)
-    error (_("Dwarf Error: could not find abbrev number %d [in module %s]"),
+    error (_(DWARF_ERROR_PREFIX
+	     "could not find abbrev number %d [in module %s]"),
 	   abbrev_number,
 	   bfd_get_filename (abfd));
 
@@ -16030,8 +16057,6 @@ cooked_indexer::ensure_cu_exists (cutu_reader *reader,
       if (!per_cu->scanned.compare_exchange_strong (nope, true))
 	return nullptr;
     }
-  if (per_cu == m_per_cu)
-    return reader;
 
   cutu_reader *result = m_index_storage->get_reader (per_cu);
   if (result == nullptr)
@@ -16256,6 +16281,13 @@ cooked_indexer::scan_attributes (dwarf2_per_cu_data *scanning_per_cu,
 	  const abbrev_info *new_abbrev = peek_die_abbrev (*new_reader,
 							   new_info_ptr,
 							   &bytes_read);
+
+	  if (new_abbrev == nullptr)
+	    error (_(DWARF_ERROR_PREFIX
+		     "Unexpected null DIE at offset %s [in module %s]"),
+		   sect_offset_str (origin_offset),
+		   bfd_get_filename (new_reader->abfd));
+
 	  new_info_ptr += bytes_read;
 
 	  if (new_reader->cu == reader->cu && new_info_ptr == watermark_ptr)
@@ -17244,7 +17276,8 @@ read_attribute_value (const struct die_reader_specs *reader,
       }
       break;
     default:
-      error (_("Dwarf Error: Cannot handle %s in DWARF reader [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "Cannot handle %s in DWARF reader [in module %s]"),
 	     dwarf_form_name (form),
 	     bfd_get_filename (abfd));
     }
@@ -17692,7 +17725,7 @@ dwarf2_string_attr (struct die_info *die, unsigned int name, struct dwarf2_cu *c
       str = attr->as_string ();
       if (str == nullptr)
 	complaint (_("string type expected for attribute %s for "
-		     "DIE at %s in module %s"),
+		     "DIE at %s [in module %s]"),
 		   dwarf_attr_name (name), sect_offset_str (die->sect_off),
 		   objfile_name (cu->per_objfile->objfile));
     }
@@ -17904,8 +17937,8 @@ public:
      we're processing the end of a sequence.  */
   void record_line (bool end_sequence);
 
-  /* Check ADDRESS is -1, or zero and less than UNRELOCATED_LOWPC, and if true
-     nop-out rest of the lines in this sequence.  */
+  /* Check ADDRESS is -1, -2, or zero and less than UNRELOCATED_LOWPC, and if
+     true nop-out rest of the lines in this sequence.  */
   void check_line_address (struct dwarf2_cu *cu,
 			   const gdb_byte *line_ptr,
 			   unrelocated_addr unrelocated_lowpc,
@@ -18315,13 +18348,16 @@ lnp_state_machine::check_line_address (struct dwarf2_cu *cu,
 				       unrelocated_addr unrelocated_lowpc,
 				       unrelocated_addr address)
 {
-  /* Linkers resolve a symbolic relocation referencing a GC'd function to 0 or
-     -1.  If ADDRESS is 0, ignoring the opcode will err if the text section is
+  /* Linkers resolve a symbolic relocation referencing a GC'd function to 0,
+     -1 or -2 (-2 is used by certain lld versions, see
+     https://github.com/llvm/llvm-project/commit/e618ccbf431f6730edb6d1467a127c3a52fd57f7).
+     If ADDRESS is 0, ignoring the opcode will err if the text section is
      located at 0x0.  In this case, additionally check that if
      ADDRESS < UNRELOCATED_LOWPC.  */
 
   if ((address == (unrelocated_addr) 0 && address < unrelocated_lowpc)
-      || address == (unrelocated_addr) -1)
+      || address == (unrelocated_addr) -1
+      || address == (unrelocated_addr) -2)
     {
       /* This line table is for a function which has been
 	 GCd by the linker.  Ignore it.  PR gdb/12528 */
@@ -19517,8 +19553,10 @@ die_containing_type (struct die_info *die, struct dwarf2_cu *cu)
 
   type_attr = dwarf2_attr (die, DW_AT_containing_type, cu);
   if (!type_attr)
-    error (_("Dwarf Error: Problem turning containing type into gdb type "
-	     "[in module %s]"), objfile_name (objfile));
+    error (_(DWARF_ERROR_PREFIX
+	     "Problem turning containing type into gdb type "
+	     "[in module %s]"),
+	   objfile_name (objfile));
 
   return lookup_die_type (die, type_attr, cu);
 }
@@ -19585,8 +19623,8 @@ lookup_die_type (struct die_info *die, const struct attribute *attr,
     }
   else
     {
-      complaint (_("Dwarf Error: Bad type attribute %s in DIE"
-		   " at %s [in module %s]"),
+      complaint (_(DWARF_ERROR_PREFIX
+		   "Bad type attribute %s in DIE at %s [in module %s]"),
 		 dwarf_attr_name (attr->name), sect_offset_str (die->sect_off),
 		 objfile_name (objfile));
       return build_error_marker_type (cu, die);
@@ -20253,7 +20291,8 @@ follow_die_ref_or_sig (struct die_info *src_die, const struct attribute *attr,
   else
     {
       src_die->error_dump ();
-      error (_("Dwarf Error: Expected reference attribute [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "Expected reference attribute [in module %s]"),
 	     objfile_name ((*ref_cu)->per_objfile->objfile));
     }
 
@@ -20355,8 +20394,8 @@ follow_die_ref (struct die_info *src_die, const struct attribute *attr,
 			    || cu->per_cu->is_dwz),
 			   ref_cu);
   if (!die)
-    error (_("Dwarf Error: Cannot find DIE at %s referenced from DIE "
-	   "at %s [in module %s]"),
+    error (_(DWARF_ERROR_PREFIX
+	     "Cannot find DIE at %s referenced from DIE at %s [in module %s]"),
 	   sect_offset_str (sect_off), sect_offset_str (src_die->sect_off),
 	   objfile_name (cu->per_objfile->objfile));
 
@@ -20385,13 +20424,15 @@ dwarf2_fetch_die_loc_sect_off (sect_offset sect_off,
     {
       /* We shouldn't get here for a dummy CU, but don't crash on the user.
 	 Instead just throw an error, not much else we can do.  */
-      error (_("Dwarf Error: Dummy CU at %s referenced in module %s"),
+      error (_(DWARF_ERROR_PREFIX
+	       "Dummy CU at %s referenced [in module %s]"),
 	     sect_offset_str (sect_off), objfile_name (objfile));
     }
 
   die = follow_die_offset (sect_off, per_cu->is_dwz, &cu);
   if (!die)
-    error (_("Dwarf Error: Cannot find DIE at %s referenced in module %s"),
+    error (_(DWARF_ERROR_PREFIX
+	     "Cannot find DIE at %s referenced [in module %s]"),
 	   sect_offset_str (sect_off), objfile_name (objfile));
 
   attr = dwarf2_attr (die, DW_AT_location, cu);
@@ -20450,8 +20491,9 @@ dwarf2_fetch_die_loc_sect_off (sect_offset sect_off,
   else
     {
       if (!attr->form_is_block ())
-	error (_("Dwarf Error: DIE at %s referenced in module %s "
-		 "is neither DW_FORM_block* nor DW_FORM_exprloc"),
+	error (_(DWARF_ERROR_PREFIX
+		 "DIE at %s is neither DW_FORM_block* nor DW_FORM_exprloc"
+		 " [in module %s]"),
 	       sect_offset_str (sect_off), objfile_name (objfile));
 
       struct dwarf_block *block = attr->as_block ();
@@ -20524,13 +20566,15 @@ dwarf2_fetch_constant_bytes (sect_offset sect_off,
     {
       /* We shouldn't get here for a dummy CU, but don't crash on the user.
 	 Instead just throw an error, not much else we can do.  */
-      error (_("Dwarf Error: Dummy CU at %s referenced in module %s"),
+      error (_(DWARF_ERROR_PREFIX
+	       "Dummy CU at %s referenced [in module %s]"),
 	     sect_offset_str (sect_off), objfile_name (objfile));
     }
 
   die = follow_die_offset (sect_off, per_cu->is_dwz, &cu);
   if (!die)
-    error (_("Dwarf Error: Cannot find DIE at %s referenced in module %s"),
+    error (_(DWARF_ERROR_PREFIX
+	     "Cannot find DIE at %s referenced [in module %s]"),
 	   sect_offset_str (sect_off), objfile_name (objfile));
 
   attr = dwarf2_attr (die, DW_AT_const_value, cu);
@@ -20746,8 +20790,9 @@ follow_die_sig (struct die_info *src_die, const struct attribute *attr,
      the debug info.  */
   if (sig_type == NULL)
     {
-      error (_("Dwarf Error: Cannot find signatured DIE %s referenced"
-	       " from DIE at %s [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "Cannot find signatured DIE %s referenced from DIE at %s"
+	       " [in module %s]"),
 	     hex_string (signature), sect_offset_str (src_die->sect_off),
 	     objfile_name ((*ref_cu)->per_objfile->objfile));
     }
@@ -20756,8 +20801,9 @@ follow_die_sig (struct die_info *src_die, const struct attribute *attr,
   if (die == NULL)
     {
       src_die->error_dump ();
-      error (_("Dwarf Error: Problem reading signatured DIE %s referenced"
-	       " from DIE at %s [in module %s]"),
+      error (_(DWARF_ERROR_PREFIX
+	       "Problem reading signatured DIE %s referenced from DIE at %s"
+	       " [in module %s]"),
 	     hex_string (signature), sect_offset_str (src_die->sect_off),
 	     objfile_name ((*ref_cu)->per_objfile->objfile));
     }
@@ -20783,8 +20829,9 @@ get_signatured_type (struct die_info *die, ULONGEST signature,
      the debug info.  */
   if (sig_type == NULL)
     {
-      complaint (_("Dwarf Error: Cannot find signatured DIE %s referenced"
-		   " from DIE at %s [in module %s]"),
+      complaint (_(DWARF_ERROR_PREFIX
+		   "Cannot find signatured DIE %s referenced from DIE at %s"
+		   " [in module %s]"),
 		 hex_string (signature), sect_offset_str (die->sect_off),
 		 objfile_name (per_objfile->objfile));
       return build_error_marker_type (cu, die);
@@ -20805,7 +20852,8 @@ get_signatured_type (struct die_info *die, ULONGEST signature,
       type = read_type_die (type_die, type_cu);
       if (type == NULL)
 	{
-	  complaint (_("Dwarf Error: Cannot build signatured type %s"
+	  complaint (_(DWARF_ERROR_PREFIX
+		       "Cannot build signatured type %s"
 		       " referenced from DIE at %s [in module %s]"),
 		     hex_string (signature), sect_offset_str (die->sect_off),
 		     objfile_name (per_objfile->objfile));
@@ -20814,7 +20862,8 @@ get_signatured_type (struct die_info *die, ULONGEST signature,
     }
   else
     {
-      complaint (_("Dwarf Error: Problem reading signatured DIE %s referenced"
+      complaint (_(DWARF_ERROR_PREFIX
+		   "Problem reading signatured DIE %s referenced"
 		   " from DIE at %s [in module %s]"),
 		 hex_string (signature), sect_offset_str (die->sect_off),
 		 objfile_name (per_objfile->objfile));
@@ -20849,8 +20898,9 @@ get_DW_AT_signature_type (struct die_info *die, const struct attribute *attr,
     {
       dwarf2_per_objfile *per_objfile = cu->per_objfile;
 
-      complaint (_("Dwarf Error: DW_AT_signature has bad form %s in DIE"
-		   " at %s [in module %s]"),
+      complaint (_(DWARF_ERROR_PREFIX
+		   "DW_AT_signature has bad form %s in DIE at %s"
+		   " [in module %s]"),
 		 dwarf_form_name (attr->form), sect_offset_str (die->sect_off),
 		 objfile_name (per_objfile->objfile));
       return build_error_marker_type (cu, die);
@@ -21459,8 +21509,8 @@ dwarf2_find_containing_comp_unit (sect_offset sect_off,
   if (this_cu->is_dwz != offset_in_dwz || this_cu->sect_off > sect_off)
     {
       if (low == 0 || this_cu->is_dwz != offset_in_dwz)
-	error (_("Dwarf Error: could not find CU containing "
-	       "offset %s [in module %s]"),
+	error (_(DWARF_ERROR_PREFIX
+		 "could not find CU containing offset %s [in module %s]"),
 	       sect_offset_str (sect_off),
 	       bfd_get_filename (per_bfd->obfd));
 
@@ -21586,7 +21636,8 @@ prepare_one_comp_unit (struct dwarf2_cu *cu, struct die_info *comp_unit_die,
       cu->per_cu->set_unit_type (DW_UT_type);
       break;
     default:
-      error (_("Dwarf Error: unexpected tag '%s' at offset %s"),
+      error (_(DWARF_ERROR_PREFIX
+	       "unexpected tag '%s' at offset %s"),
 	     dwarf_tag_name (comp_unit_die->tag),
 	     sect_offset_str (cu->per_cu->sect_off));
     }

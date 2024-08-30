@@ -1626,6 +1626,9 @@ validate_riscv_insn (const struct riscv_opcode *opc, int length)
 	    case 'c':
 	      switch (*++oparg)
 		{
+		/* sreg operators in cm.mvsa01 and cm.mva01s.  */
+		case '1': USE_BITS (OP_MASK_SREG1, OP_SH_SREG1); break;
+		case '2': USE_BITS (OP_MASK_SREG2, OP_SH_SREG2); break;
 		/* byte immediate operators, load/store byte insns.  */
 		case 'h': used_bits |= ENCODE_ZCB_HALFWORD_UIMM (-1U); break;
 		/* halfword immediate operators, load/store halfword insns.  */
@@ -3892,6 +3895,18 @@ riscv_ip (char *str, struct riscv_cl_insn *ip, expressionS *imm_expr,
 		      asarg = expr_parse_end;
 		      imm_expr->X_op = O_absent;
 		      continue;
+		    case '1':
+		      if (!reg_lookup (&asarg, RCLASS_GPR, &regno)
+			  || !RISCV_SREG_0_7 (regno))
+			break;
+		      INSERT_OPERAND (SREG1, *ip, regno % 8);
+		      continue;
+		    case '2':
+		      if (!reg_lookup (&asarg, RCLASS_GPR, &regno)
+			  || !RISCV_SREG_0_7 (regno))
+			break;
+		      INSERT_OPERAND (SREG2, *ip, regno % 8);
+		      continue;
 		    default:
 		      goto unknown_riscv_ip_operand;
 		    }
@@ -5023,40 +5038,37 @@ riscv_handle_align (fragS *fragP)
   switch (fragP->fr_type)
     {
     case rs_align_code:
-      /* When relaxing, riscv_frag_align_code handles code alignment.  */
-      if (!riscv_opts.relax)
-	{
-	  bfd_signed_vma bytes = (fragP->fr_next->fr_address
-				  - fragP->fr_address - fragP->fr_fix);
-	  /* We have 4 byte uncompressed nops.  */
-	  bfd_signed_vma size = 4;
-	  bfd_signed_vma excess = bytes % size;
-	  bfd_boolean odd_padding = (excess % 2 == 1);
-	  char *p = fragP->fr_literal + fragP->fr_fix;
+      {
+	bfd_signed_vma bytes = (fragP->fr_next->fr_address
+				- fragP->fr_address - fragP->fr_fix);
+	/* We have 4 byte uncompressed nops.  */
+	bfd_signed_vma size = 4;
+	bfd_signed_vma excess = bytes % size;
+	char *p = fragP->fr_literal + fragP->fr_fix;
 
-	  if (bytes <= 0)
-	    break;
+	if (bytes <= 0)
+	  break;
 
-	  /* Insert zeros or compressed nops to get 4 byte alignment.  */
-	  if (excess)
-	    {
-	      if (odd_padding)
-		riscv_add_odd_padding_symbol (fragP);
-	      riscv_make_nops (p, excess);
-	      fragP->fr_fix += excess;
-	      p += excess;
-	    }
+	/* Insert zeros or compressed nops to get 4 byte alignment.  */
+	if (excess)
+	  {
+	    if (excess % 2)
+	      riscv_add_odd_padding_symbol (fragP);
+	    riscv_make_nops (p, excess);
+	    fragP->fr_fix += excess;
+	    p += excess;
+	  }
 
-	  /* The frag will be changed to `rs_fill` later.  The function
-	     `write_contents` will try to fill the remaining spaces
-	     according to the patterns we give.  In this case, we give
-	     a 4 byte uncompressed nop as the pattern, and set the size
-	     of the pattern into `fr_var`.  The nop will be output to the
-	     file `fr_offset` times.  However, `fr_offset` could be zero
-	     if we don't need to pad the boundary finally.  */
-	  riscv_make_nops (p, size);
-	  fragP->fr_var = size;
-	}
+	/* The frag will be changed to `rs_fill` later.  The function
+	   `write_contents` will try to fill the remaining spaces
+	   according to the patterns we give.  In this case, we give
+	   a 4 byte uncompressed nop as the pattern, and set the size
+	   of the pattern into `fr_var`.  The nop will be output to the
+	   file `fr_offset` times.  However, `fr_offset` could be zero
+	   if we don't need to pad the boundary finally.  */
+	riscv_make_nops (p, size);
+	fragP->fr_var = size;
+      }
       break;
 
     default:
