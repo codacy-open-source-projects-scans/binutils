@@ -4690,9 +4690,9 @@ make_array_descriptor (struct type *type, struct value *arr)
    even in this case, some expensive name-based symbol searches are still
    sometimes necessary - to find an XVZ variable, mostly.  */
 
-/* Clear all entries from the symbol cache.  */
+/* See ada-lang.h.  */
 
-static void
+void
 ada_clear_symbol_cache (program_space *pspace)
 {
   ada_pspace_data_handle.clear (pspace);
@@ -12637,7 +12637,7 @@ ada_exception_catchpoint_cond_string (const char *excep_string,
      may then be set only on user-defined exceptions which have the
      same not-fully-qualified name (e.g. my_package.constraint_error).
 
-     To avoid this unexcepted behavior, these standard exceptions are
+     To avoid this unexpected behavior, these standard exceptions are
      systematically prefixed by "standard".  This means that "catch
      exception constraint_error" is rewritten into "catch exception
      standard.constraint_error".
@@ -12717,6 +12717,10 @@ create_ada_exception_catchpoint (struct gdbarch *gdbarch,
 				 int enabled,
 				 int from_tty)
 {
+  /* This works around an obscure issue when an Ada program is
+     compiled with LTO.  */
+  scoped_restore_current_language save_language (language_ada);
+
   std::unique_ptr<ada_catchpoint> c
     (new ada_catchpoint (gdbarch, ex_kind,
 			 cond_string.empty () ? nullptr : cond_string.c_str (),

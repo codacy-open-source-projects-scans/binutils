@@ -1186,6 +1186,7 @@ static const arch_entry cpu_arch[] =
   VECARCH (avx10.1, AVX10_1, ANY_AVX512F, set),
   SUBARCH (user_msr, USER_MSR, USER_MSR, false),
   SUBARCH (apx_f, APX_F, APX_F, false),
+  VECARCH (avx10.2, AVX10_2, ANY_AVX10_2, set),
 };
 
 #undef SUBARCH
@@ -4037,7 +4038,7 @@ build_vex_prefix (const insn_template *t)
 {
   unsigned int register_specifier;
   unsigned int vector_length;
-  unsigned int w;
+  bool w;
 
   /* Check register specifier.  */
   if (i.vex.register_specifier)
@@ -4136,11 +4137,11 @@ build_vex_prefix (const insn_template *t)
 
   /* Check the REX.W bit and VEXW.  */
   if (i.tm.opcode_modifier.vexw == VEXWIG)
-    w = (vexwig == vexw1 || (i.rex & REX_W)) ? 1 : 0;
+    w = vexwig == vexw1 || (i.rex & REX_W);
   else if (i.tm.opcode_modifier.vexw && !(i.rex & REX_W))
-    w = i.tm.opcode_modifier.vexw == VEXW1 ? 1 : 0;
+    w = i.tm.opcode_modifier.vexw == VEXW1;
   else
-    w = (flag_code == CODE_64BIT ? i.rex & REX_W : vexwig == vexw1) ? 1 : 0;
+    w = flag_code == CODE_64BIT ? i.rex & REX_W : vexwig == vexw1;
 
   /* Use 2-byte VEX prefix if possible.  */
   if (w == 0
@@ -4149,13 +4150,13 @@ build_vex_prefix (const insn_template *t)
       && (i.rex & (REX_W | REX_X | REX_B)) == 0)
     {
       /* 2-byte VEX prefix.  */
-      unsigned int r;
+      bool r;
 
       i.vex.length = 2;
       i.vex.bytes[0] = 0xc5;
 
       /* Check the REX.R bit.  */
-      r = (i.rex & REX_R) ? 0 : 1;
+      r = !(i.rex & REX_R);
       i.vex.bytes[1] = (r << 7
 			| register_specifier << 3
 			| vector_length << 2
@@ -4293,7 +4294,8 @@ get_broadcast_bytes (const insn_template *t, bool diag)
 static void
 build_evex_prefix (void)
 {
-  unsigned int register_specifier, w;
+  unsigned int register_specifier;
+  bool w, u;
   rex_byte vrex_used = 0;
 
   /* Check register specifier.  */
@@ -4360,16 +4362,68 @@ build_evex_prefix (void)
 
   /* Check the REX.W bit and VEXW.  */
   if (i.tm.opcode_modifier.vexw == VEXWIG)
-    w = (evexwig == evexw1 || (i.rex & REX_W)) ? 1 : 0;
+    w = evexwig == evexw1 || (i.rex & REX_W);
   else if (i.tm.opcode_modifier.vexw && !(i.rex & REX_W))
-    w = i.tm.opcode_modifier.vexw == VEXW1 ? 1 : 0;
+    w = i.tm.opcode_modifier.vexw == VEXW1;
   else
-    w = (flag_code == CODE_64BIT ? i.rex & REX_W : evexwig == evexw1) ? 1 : 0;
+    w = flag_code == CODE_64BIT ? i.rex & REX_W : evexwig == evexw1;
+
+  if (i.tm.opcode_modifier.evex == EVEXDYN)
+    {
+      unsigned int op;
+
+      /* Determine vector length from the last multi-length vector operand.  */
+      for (op = i.operands; op--;)
+	if (i.tm.operand_types[op].bitfield.xmmword
+	    + i.tm.operand_types[op].bitfield.ymmword
+	    + i.tm.operand_types[op].bitfield.zmmword > 1)
+	  {
+	    if (i.types[op].bitfield.zmmword)
+	      {
+		i.tm.opcode_modifier.evex = EVEX512;
+		break;
+	      }
+	    else if (i.types[op].bitfield.ymmword)
+	      {
+		i.tm.opcode_modifier.evex = EVEX256;
+		break;
+	      }
+	    else if (i.types[op].bitfield.xmmword)
+	      {
+		i.tm.opcode_modifier.evex = EVEX128;
+		break;
+	      }
+	    else if ((i.broadcast.type || i.broadcast.bytes)
+		      && op == i.broadcast.operand)
+	      {
+		switch (get_broadcast_bytes (&i.tm, true))
+		  {
+		    case 64:
+		      i.tm.opcode_modifier.evex = EVEX512;
+		      break;
+		    case 32:
+		      i.tm.opcode_modifier.evex = EVEX256;
+		      break;
+		    case 16:
+		      i.tm.opcode_modifier.evex = EVEX128;
+		      break;
+		    default:
+		      abort ();
+		  }
+		break;
+	      }
+	  }
+
+      if (op >= MAX_OPERANDS)
+	abort ();
+    }
+
+  u = i.rounding.type == rc_none || i.tm.opcode_modifier.evex != EVEX256;
 
   /* The third byte of the EVEX prefix.  */
   i.vex.bytes[2] = ((w << 7)
 		    | (register_specifier << 3)
-		    | 4 /* Encode the U bit.  */
+		    | (u << 2)
 		    | i.tm.opcode_modifier.opcodeprefix);
 
   /* The fourth byte of the EVEX prefix.  */
@@ -4382,57 +4436,6 @@ build_evex_prefix (void)
     {
       /* Encode the vector length.  */
       unsigned int vec_length;
-
-      if (i.tm.opcode_modifier.evex == EVEXDYN)
-	{
-	  unsigned int op;
-
-	  /* Determine vector length from the last multi-length vector
-	     operand.  */
-	  for (op = i.operands; op--;)
-	    if (i.tm.operand_types[op].bitfield.xmmword
-		+ i.tm.operand_types[op].bitfield.ymmword
-		+ i.tm.operand_types[op].bitfield.zmmword > 1)
-	      {
-		if (i.types[op].bitfield.zmmword)
-		  {
-		    i.tm.opcode_modifier.evex = EVEX512;
-		    break;
-		  }
-		else if (i.types[op].bitfield.ymmword)
-		  {
-		    i.tm.opcode_modifier.evex = EVEX256;
-		    break;
-		  }
-		else if (i.types[op].bitfield.xmmword)
-		  {
-		    i.tm.opcode_modifier.evex = EVEX128;
-		    break;
-		  }
-		else if ((i.broadcast.type || i.broadcast.bytes)
-			 && op == i.broadcast.operand)
-		  {
-		    switch (get_broadcast_bytes (&i.tm, true))
-		      {
-			case 64:
-			  i.tm.opcode_modifier.evex = EVEX512;
-			  break;
-			case 32:
-			  i.tm.opcode_modifier.evex = EVEX256;
-			  break;
-			case 16:
-			  i.tm.opcode_modifier.evex = EVEX128;
-			  break;
-			default:
-			  abort ();
-		      }
-		    break;
-		  }
-	      }
-
-	  if (op >= MAX_OPERANDS)
-	    abort ();
-	}
 
       switch (i.tm.opcode_modifier.evex)
 	{
@@ -4575,9 +4578,9 @@ static void establish_rex (void)
   i.rex |= i.prefix[REX_PREFIX] & REX_OPCODE;
 
   /* For 8 bit RegRex64 registers without a prefix, we need an empty rex prefix.  */
-  if (((i.types[first].bitfield.class == Reg && i.types[first].bitfield.byte
+  if (((i.types[first].bitfield.class == Reg
 	&& (i.op[first].regs->reg_flags & RegRex64) != 0)
-       || (i.types[last].bitfield.class == Reg && i.types[last].bitfield.byte
+       || (i.types[last].bitfield.class == Reg
 	   && (i.op[last].regs->reg_flags & RegRex64) != 0))
       && !is_apx_rex2_encoding () && !is_any_vex_encoding (&i.tm))
     i.rex |= REX_OPCODE;
@@ -4591,9 +4594,8 @@ static void establish_rex (void)
 	{
 	  /* Look for 8 bit operand that uses old registers.  */
 	  if (i.types[x].bitfield.class == Reg && i.types[x].bitfield.byte
-	      && (i.op[x].regs->reg_flags & RegRex64) == 0)
+	      && !(i.op[x].regs->reg_flags & (RegRex | RegRex2 | RegRex64)))
 	    {
-	      gas_assert (!(i.op[x].regs->reg_flags & RegRex));
 	      /* In case it is "hi" register, give up.  */
 	      if (i.op[x].regs->reg_num > 3)
 		as_bad (_("can't encode register '%s%s' in an "
@@ -4619,10 +4621,9 @@ static void establish_rex (void)
       for (x = first; x <= last; x++)
 	if (i.types[x].bitfield.class == Reg
 	    && i.types[x].bitfield.byte
-	    && (i.op[x].regs->reg_flags & RegRex64) == 0
+	    && !(i.op[x].regs->reg_flags & (RegRex | RegRex2 | RegRex64))
 	    && i.op[x].regs->reg_num > 3)
 	  {
-	    gas_assert (!(i.op[x].regs->reg_flags & RegRex));
 	    pp.rex_encoding = false;
 	    pp.rex2_encoding = false;
 	    break;
@@ -4927,7 +4928,7 @@ optimize_encoding (void)
 	  /* Squash the suffix.  */
 	  i.suffix = 0;
 	  /* Convert to byte registers. 8-bit registers are special,
-	     RegRex64 and non-RegRex64 each have 8 registers.  */
+	     RegRex64 and non-RegRex* each have 8 registers.  */
 	  if (i.types[1].bitfield.word)
 	    /* 32 (or 40) 8-bit registers.  */
 	    j = 32;
@@ -5140,6 +5141,41 @@ optimize_encoding (void)
 	  if (i.op[0].imms->X_add_number < 16)
 	    i.tm.opcode_modifier.size = SIZE16;
 	  break;
+	}
+    }
+  else if (optimize > 1
+	   && (i.tm.base_opcode | 0xf) == 0x4f
+	   && i.tm.opcode_space == SPACE_EVEXMAP4
+	   && i.reg_operands == 3
+	   && i.tm.opcode_modifier.operandconstraint == EVEX_NF
+	   && !i.types[0].bitfield.word)
+    {
+      /* Optimize: -O2:
+	   cfcmov<cc> %rM, %rN, %rN -> cmov<cc> %rM, %rN
+	   cfcmov<cc> %rM, %rN, %rM -> cmov<!cc> %rN, %rM
+	   cfcmov<cc> %rN, %rN, %rN -> nop %rN
+       */
+      if (i.op[0].regs == i.op[2].regs)
+	{
+	  i.tm.base_opcode ^= 1;
+	  i.op[0].regs = i.op[1].regs;
+	  i.op[1].regs = i.op[2].regs;
+	}
+      else if (i.op[1].regs != i.op[2].regs)
+	return;
+
+      i.tm.opcode_space = SPACE_0F;
+      i.tm.opcode_modifier.evex = 0;
+      i.tm.opcode_modifier.vexvvvv = 0;
+      i.tm.opcode_modifier.operandconstraint = 0;
+      i.reg_operands = 2;
+
+      /* While at it, convert to NOP if all three regs match.  */
+      if (i.op[0].regs == i.op[1].regs)
+	{
+	  i.tm.base_opcode = 0x1f;
+	  i.tm.extension_opcode = 0;
+	  i.reg_operands = 1;
 	}
     }
   else if (i.reg_operands == 3
@@ -5480,7 +5516,7 @@ static bool is_index (const reg_entry *r)
 
   if (r->reg_type.bitfield.byte)
     {
-      if (!(r->reg_flags & RegRex64))
+      if (!(r->reg_flags & (RegRex | RegRex2 | RegRex64)))
 	{
 	  if (r->reg_num >= 4)
 	    return false;
@@ -8120,13 +8156,19 @@ check_VecOperands (const insn_template *t)
 	  return 1;
 	}
 
-      /* Non-EVEX.{LIG,512} forms need to have a ZMM register as at least one
-	 operand.  There's no need to check all operands, though: Either of the
+      /* Non-EVEX.{LIG,512,256} forms need to have a ZMM or YMM register as at
+	 least one operand.  For YMM register or EVEX256, we will need AVX10.2
+	 enabled.  There's no need to check all operands, though: Either of the
 	 last two operands will be of the right size in all relevant templates.  */
       if (t->opcode_modifier.evex != EVEXLIG
 	  && t->opcode_modifier.evex != EVEX512
+	  && (t->opcode_modifier.evex != EVEX256
+	      || !cpu_arch_flags.bitfield.cpuavx10_2)
 	  && !i.types[t->operands - 1].bitfield.zmmword
-	  && !i.types[t->operands - 2].bitfield.zmmword)
+	  && !i.types[t->operands - 2].bitfield.zmmword
+	  && ((!i.types[t->operands - 1].bitfield.ymmword
+	       && !i.types[t->operands - 2].bitfield.ymmword)
+	      || !cpu_arch_flags.bitfield.cpuavx10_2))
 	{
 	  i.error = operand_size_mismatch;
 	  return 1;
@@ -8836,7 +8878,10 @@ match_template (char mnem_suffix)
 		  found_reverse_match = Opcode_D;
 		  goto check_operands_345;
 		}
-	      else if (t->opcode_modifier.commutative)
+	      else if (t->opcode_modifier.commutative
+		       /* CFCMOVcc also wants its major opcode unaltered.  */
+		       || (t->opcode_space == SPACE_EVEXMAP4
+			   && (t->base_opcode | 0xf) == 0x4f))
 		found_reverse_match = ~0;
 	      else if (t->opcode_space != SPACE_BASE
 		       && (t->opcode_space != SPACE_EVEXMAP4
@@ -9136,6 +9181,9 @@ match_template (char mnem_suffix)
 
       /* Fall through.  */
     case ~0:
+      if (i.tm.opcode_space == SPACE_EVEXMAP4
+	  && !t->opcode_modifier.commutative)
+	i.tm.opcode_modifier.operandconstraint = EVEX_NF;
       i.tm.operand_types[0] = operand_types[i.operands - 1];
       i.tm.operand_types[i.operands - 1] = operand_types[0];
       break;
@@ -13147,7 +13195,7 @@ s_insn (int dummy ATTRIBUTE_UNUSED)
 	      && flag_code == CODE_64BIT
 	      && i.types[j].bitfield.class == Reg
 	      && i.types[j].bitfield.byte
-	      && !(i.op[j].regs->reg_flags & RegRex64)
+	      && !(i.op[j].regs->reg_flags & (RegRex | RegRex2 | RegRex64))
 	      && i.op[j].regs->reg_num > 3)
 	    as_bad (_("can't encode register '%s%s' with VEX/XOP/EVEX"),
 		    register_prefix, i.op[j].regs->reg_name);
