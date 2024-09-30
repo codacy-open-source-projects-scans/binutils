@@ -51,7 +51,6 @@
 #include "cli/cli-cmds.h"
 #include "cli/cli-style.h"
 #include "cli/cli-utils.h"
-#include "cli/cli-style.h"
 
 #include "extension.h"
 #include "gdbsupport/pathstuff.h"
@@ -1118,19 +1117,14 @@ pipe_command (const char *arg, int from_tty)
   if (to_shell_command == nullptr)
     error (_("Error launching \"%s\""), shell_command);
 
-  try
-    {
-      stdio_file pipe_file (to_shell_command);
+  int exit_status;
+  {
+    SCOPE_EXIT { exit_status = pclose (to_shell_command); };
 
-      execute_command_to_ui_file (&pipe_file, gdb_cmd.c_str (), from_tty);
-    }
-  catch (...)
-    {
-      pclose (to_shell_command);
-      throw;
-    }
+    stdio_file pipe_file (to_shell_command);
 
-  int exit_status = pclose (to_shell_command);
+    execute_command_to_ui_file (&pipe_file, gdb_cmd.c_str (), from_tty);
+  }
 
   if (exit_status < 0)
     error (_("shell command \"%s\" failed: %s"), shell_command,
