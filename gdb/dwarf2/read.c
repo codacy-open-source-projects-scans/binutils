@@ -1252,7 +1252,9 @@ line_header_eq_voidp (const void *item_lhs, const void *item_rhs)
 dwarf2_per_bfd::dwarf2_per_bfd (bfd *obfd, const dwarf2_debug_sections *names,
 				bool can_copy_)
   : obfd (obfd),
-    can_copy (can_copy_)
+    can_copy (can_copy_),
+    captured_cwd (current_directory),
+    captured_debug_dir (debug_file_directory)
 {
   if (names == NULL)
     names = &dwarf2_elf_names;
@@ -3968,7 +3970,7 @@ cutu_reader::init_tu_and_read_dwo_dies (dwarf2_per_cu_data *this_cu,
       /* If an existing_cu is provided, a dwarf2_cu must not exist for this_cu
 	 in per_objfile yet.  */
       gdb_assert (per_objfile->get_cu (this_cu) == nullptr);
-      m_new_cu.reset (new dwarf2_cu (this_cu, per_objfile));
+      m_new_cu = std::make_unique<dwarf2_cu> (this_cu, per_objfile);
       cu = m_new_cu.get ();
     }
 
@@ -4065,7 +4067,7 @@ cutu_reader::cutu_reader (dwarf2_per_cu_data *this_cu,
 	 thread-safe.  */
       gdb_assert (cache != nullptr
 		  || per_objfile->get_cu (this_cu) == nullptr);
-      m_new_cu.reset (new dwarf2_cu (this_cu, per_objfile));
+      m_new_cu = std::make_unique<dwarf2_cu> (this_cu, per_objfile);
       cu = m_new_cu.get ();
     }
 
@@ -4255,7 +4257,7 @@ cutu_reader::cutu_reader (dwarf2_per_cu_data *this_cu,
   /* This is cheap if the section is already read in.  */
   section->read (objfile);
 
-  m_new_cu.reset (new dwarf2_cu (this_cu, per_objfile));
+  m_new_cu = std::make_unique<dwarf2_cu> (this_cu, per_objfile);
 
   begin_info_ptr = info_ptr = section->buffer + to_underlying (this_cu->sect_off);
   info_ptr = read_and_check_comp_unit_head (per_objfile, &m_new_cu->header,
@@ -5031,7 +5033,7 @@ cooked_index_debug_info::do_reading ()
 	}
 
       gdb_assert (iter != last);
-      workers.add_task ([=] ()
+      workers.add_task ([this, task_count, iter, last] ()
 	{
 	  process_cus (task_count, iter, last);
 	});
@@ -7364,7 +7366,7 @@ find_file_and_directory (struct die_info *die, struct dwarf2_cu *cu)
       res.set_name (make_unique_xstrdup (lbasename (res.get_name ())));
     }
 
-  cu->per_cu->fnd.reset (new file_and_directory (std::move (res)));
+  cu->per_cu->fnd = std::make_unique<file_and_directory> (std::move (res));
   return *cu->per_cu->fnd;
 }
 
@@ -7610,11 +7612,11 @@ dwarf2_cu::setup_type_unit_groups (struct die_info *die)
 	  gdb_assert (tug_unshare->symtabs == NULL);
 	  gdb_assert (m_builder == nullptr);
 	  struct compunit_symtab *cust = tug_unshare->compunit_symtab;
-	  m_builder.reset (new struct buildsym_compunit
+	  m_builder = std::make_unique<buildsym_compunit>
 			   (cust->objfile (), "",
 			    cust->dirname (),
 			    cust->language (),
-			    0, cust));
+			    0, cust);
 	  list_in_scope = get_builder ()->get_file_symbols ();
 	}
       return;
@@ -7664,11 +7666,11 @@ dwarf2_cu::setup_type_unit_groups (struct die_info *die)
     {
       gdb_assert (m_builder == nullptr);
       struct compunit_symtab *cust = tug_unshare->compunit_symtab;
-      m_builder.reset (new struct buildsym_compunit
+      m_builder = std::make_unique<buildsym_compunit>
 		       (cust->objfile (), "",
 			cust->dirname (),
 			cust->language (),
-			0, cust));
+			0, cust);
       list_in_scope = get_builder ()->get_file_symbols ();
 
       auto &file_names = line_header->file_names ();
@@ -9046,10 +9048,12 @@ try_open_dwop_file (dwarf2_per_objfile *per_objfile,
   gdb::unique_xmalloc_ptr<char> search_path_holder;
   if (search_cwd)
     {
-      if (!debug_file_directory.empty ())
+      const std::string &debug_dir = per_objfile->per_bfd->captured_debug_dir;
+
+      if (!debug_dir.empty ())
 	{
 	  search_path_holder.reset (concat (".", dirname_separator_string,
-					    debug_file_directory.c_str (),
+					    debug_dir.c_str (),
 					    (char *) NULL));
 	  search_path = search_path_holder.get ();
 	}
@@ -9057,7 +9061,7 @@ try_open_dwop_file (dwarf2_per_objfile *per_objfile,
 	search_path = ".";
     }
   else
-    search_path = debug_file_directory.c_str ();
+    search_path = per_objfile->per_bfd->captured_debug_dir.c_str ();
 
   /* Add the path for the executable binary to the list of search paths.  */
   std::string objfile_dir = ldirname (objfile_name (per_objfile->objfile));
@@ -9072,7 +9076,8 @@ try_open_dwop_file (dwarf2_per_objfile *per_objfile,
 
   gdb::unique_xmalloc_ptr<char> absolute_name;
   desc = openp (search_path, flags, file_name,
-		O_RDONLY | O_BINARY, &absolute_name);
+		O_RDONLY | O_BINARY, &absolute_name,
+		per_objfile->per_bfd->captured_cwd.c_str ());
   if (desc < 0)
     return NULL;
 
@@ -9126,7 +9131,7 @@ open_dwo_file (dwarf2_per_objfile *per_objfile,
   /* That didn't work, try debug-file-directory, which, despite its name,
      is a list of paths.  */
 
-  if (debug_file_directory.empty ())
+  if (per_objfile->per_bfd->captured_debug_dir.empty ())
     return NULL;
 
   return try_open_dwop_file (per_objfile, file_name,
@@ -9407,7 +9412,7 @@ open_dwp_file (dwarf2_per_objfile *per_objfile, const char *file_name)
      [IWBN if the dwp file name was recorded in the executable, akin to
      .gnu_debuglink, but that doesn't exist yet.]
      Strip the directory from FILE_NAME and search again.  */
-  if (!debug_file_directory.empty ())
+  if (!per_objfile->per_bfd->captured_debug_dir.empty ())
     {
       /* Don't implicitly search the current directory here.
 	 If the user wants to search "." to handle this case,
@@ -16524,7 +16529,23 @@ cooked_indexer::index_dies (cutu_reader *reader,
 	  continue;
 	}
 
-      if (!abbrev->interesting)
+      parent_map::addr_type defer {};
+      if (std::holds_alternative<parent_map::addr_type> (parent))
+	defer = std::get<parent_map::addr_type> (parent);
+      const cooked_index_entry *parent_entry = nullptr;
+      if (std::holds_alternative<const cooked_index_entry *> (parent))
+	parent_entry = std::get<const cooked_index_entry *> (parent);
+
+      /* If a DIE parent is a DW_TAG_subprogram, then the DIE is only
+	 interesting if it's a DW_TAG_subprogram or a DW_TAG_entry_point.  */
+      bool die_interesting
+	= (abbrev->interesting
+	   && (parent_entry == nullptr
+	       || parent_entry->tag != DW_TAG_subprogram
+	       || abbrev->tag == DW_TAG_subprogram
+	       || abbrev->tag == DW_TAG_entry_point));
+
+      if (!die_interesting)
 	{
 	  info_ptr = skip_one_die (reader, info_ptr, abbrev, !fully);
 	  if (fully && abbrev->has_children)
@@ -16534,14 +16555,8 @@ cooked_indexer::index_dies (cutu_reader *reader,
 
       const char *name = nullptr;
       const char *linkage_name = nullptr;
-      parent_map::addr_type defer {};
-      if (std::holds_alternative<parent_map::addr_type> (parent))
-	defer = std::get<parent_map::addr_type> (parent);
       cooked_index_flag flags = IS_STATIC;
       sect_offset sibling {};
-      const cooked_index_entry *parent_entry = nullptr;
-      if (std::holds_alternative<const cooked_index_entry *> (parent))
-	parent_entry = std::get<const cooked_index_entry *> (parent);
       const cooked_index_entry *this_parent_entry = parent_entry;
       bool is_enum_class = false;
 
@@ -17824,10 +17839,11 @@ dwarf_lang_to_enum_language (unsigned int lang)
   return language;
 }
 
-/* Return the named attribute or NULL if not there.  */
+/* Return the NAME attribute of DIE in *CU, or return NULL if not there.  Also
+   return in *CU the cu in which the attribute was actually found.  */
 
 static struct attribute *
-dwarf2_attr (struct die_info *die, unsigned int name, struct dwarf2_cu *cu)
+dwarf2_attr (struct die_info *die, unsigned int name, struct dwarf2_cu **cu)
 {
   for (;;)
     {
@@ -17847,13 +17863,21 @@ dwarf2_attr (struct die_info *die, unsigned int name, struct dwarf2_cu *cu)
 	break;
 
       struct die_info *prev_die = die;
-      die = follow_die_ref (die, spec, &cu);
+      die = follow_die_ref (die, spec, cu);
       if (die == prev_die)
 	/* Self-reference, we're done.  */
 	break;
     }
 
   return NULL;
+}
+
+/* Return the NAME attribute of DIE in CU, or return NULL if not there.  */
+
+static struct attribute *
+dwarf2_attr (struct die_info *die, unsigned int name, struct dwarf2_cu *cu)
+{
+  return dwarf2_attr (die, name, &cu);
 }
 
 /* Return the string associated with a string-typed attribute, or NULL if it
@@ -19022,17 +19046,24 @@ new_symbol (struct die_info *die, struct type *type, struct dwarf2_cu *cu,
       if (attr != nullptr)
 	sym->set_line (attr->constant_value (0));
 
+      struct dwarf2_cu *file_cu = cu;
       attr = dwarf2_attr (die,
 			  inlined_func ? DW_AT_call_file : DW_AT_decl_file,
-			  cu);
+			  &file_cu);
       if (attr != nullptr && attr->is_nonnegative ())
 	{
 	  file_name_index file_index
 	    = (file_name_index) attr->as_nonnegative ();
 	  struct file_entry *fe;
 
-	  if (cu->line_header != NULL)
-	    fe = cu->line_header->file_name_at (file_index);
+	  if (file_cu->line_header == nullptr)
+	    {
+	      file_and_directory fnd (nullptr, nullptr);
+	      handle_DW_AT_stmt_list (file_cu->dies, file_cu, fnd, {}, false);
+	    }
+
+	  if (file_cu->line_header != nullptr)
+	    fe = file_cu->line_header->file_name_at (file_index);
 	  else
 	    fe = NULL;
 

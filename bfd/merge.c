@@ -165,7 +165,7 @@ struct sec_merge_sec_info
 
 /* Given a merge hash table TABLE and a number of entries to be
    ADDED, possibly resize the table for this to fit without further
-   resizing.  */
+   resizing.  Returns false if that can't be done for whatever reason.  */
 
 static bool
 sec_merge_maybe_resize (struct sec_merge_hash *table, unsigned added)
@@ -174,17 +174,18 @@ sec_merge_maybe_resize (struct sec_merge_hash *table, unsigned added)
   if (NEEDS_RESIZE (bfdtab->count + added, table->nbuckets))
     {
       unsigned i;
-      unsigned long newnb = table->nbuckets * 2;
+      unsigned long newnb = table->nbuckets;
       struct sec_merge_hash_entry **newv;
       uint64_t *newl;
       unsigned long alloc;
 
-      while (NEEDS_RESIZE (bfdtab->count + added, newnb))
+      do
 	{
-	  newnb *= 2;
-	  if (!newnb)
+	  if (newnb >> (8 * sizeof(mapofs_type) - 1))
 	    return false;
+	  newnb *= 2;
 	}
+      while (NEEDS_RESIZE (bfdtab->count + added, newnb));
 
       alloc = newnb * sizeof (newl[0]);
       if (alloc / sizeof (newl[0]) != newnb)
@@ -243,8 +244,23 @@ sec_merge_hash_insert (struct sec_merge_hash *table,
   hashp->alignment = 0;
   hashp->u.suffix = NULL;
   hashp->next = NULL;
-  // We must not need resizing, otherwise the estimation was wrong
-  BFD_ASSERT (!NEEDS_RESIZE (bfdtab->count + 1, table->nbuckets));
+
+  if (NEEDS_RESIZE (bfdtab->count + 1, table->nbuckets))
+    {
+      if (!sec_merge_maybe_resize (table, 1))
+	return NULL;
+      uint64_t *key_lens = table->key_lens;
+      unsigned int nbuckets = table->nbuckets;
+      _index = hash & (nbuckets - 1);
+      while (1)
+	{
+	  uint64_t candlen = key_lens[_index];
+	  if (!(candlen & (uint32_t)-1))
+	    break;
+	  _index = (_index + 1) & (nbuckets - 1);
+	}
+    }
+
   bfdtab->count++;
   table->key_lens[_index] = (hash << 32) | (uint32_t)len;
   table->values[_index] = hashp;
@@ -698,7 +714,9 @@ _bfd_add_merge_section (bfd *abfd, void **psinfo, asection *sec,
 }
 
 /* Record one whole input section (described by SECINFO) into the hash table
-   SINFO.  */
+   SINFO.  Returns true when section is completely recorded, and false when
+   it wasn't recorded but we can continue (e.g. by simply not deduplicating
+   this section).  */
 
 static bool
 record_section (struct sec_merge_info *sinfo,
@@ -731,15 +749,6 @@ record_section (struct sec_merge_info *sinfo,
     goto error_return;
 
   /* Now populate the hash table and offset mapping.  */
-
-  /* Presize the hash table for what we're going to add.  We overestimate
-     quite a bit, but if it turns out to be too much then other sections
-     merged into this area will make use of that as well.  */
-  if (!sec_merge_maybe_resize (sinfo->htab, 1 + sec->size / 2))
-    {
-      bfd_set_error (bfd_error_no_memory);
-      goto error_return;
-    }
 
   /* Walk through the contents, calculate hashes and length of all
      blobs (strings or fixed-size entries) we find and fill the
@@ -793,8 +802,6 @@ record_section (struct sec_merge_info *sinfo,
  error_return:
   free (contents);
   contents = NULL;
-  for (secinfo = sinfo->chain; secinfo; secinfo = secinfo->next)
-    *secinfo->psecinfo = NULL;
   return false;
 }
 
@@ -983,24 +990,20 @@ _bfd_merge_sections (bfd *abfd,
       /* Record the sections into the hash table.  */
       align = 1;
       for (secinfo = sinfo->chain; secinfo; secinfo = secinfo->next)
-	if (secinfo->sec->flags & SEC_EXCLUDE)
+	if (secinfo->sec->flags & SEC_EXCLUDE
+	    || !record_section (sinfo, secinfo))
 	  {
 	    *secinfo->psecinfo = NULL;
 	    if (remove_hook)
 	      (*remove_hook) (abfd, secinfo->sec);
 	  }
-	else
+	else if (align)
 	  {
-	    if (!record_section (sinfo, secinfo))
-	      return false;
-	    if (align)
-	      {
-		unsigned int opb = bfd_octets_per_byte (abfd, secinfo->sec);
+	    unsigned int opb = bfd_octets_per_byte (abfd, secinfo->sec);
 
-		align = (bfd_size_type) 1 << secinfo->sec->alignment_power;
-		if (((secinfo->sec->size / opb) & (align - 1)) != 0)
-		  align = 0;
-	      }
+	    align = (bfd_size_type) 1 << secinfo->sec->alignment_power;
+	    if (((secinfo->sec->size / opb) & (align - 1)) != 0)
+	      align = 0;
 	  }
 
       if (sinfo->htab->first == NULL)
@@ -1043,7 +1046,8 @@ _bfd_merge_sections (bfd *abfd,
       /* Finally remove all input sections which have not made it into
 	 the hash table at all.  */
       for (secinfo = sinfo->chain; secinfo; secinfo = secinfo->next)
-	if (secinfo->first_str == NULL)
+	if (secinfo->first_str == NULL
+	    && secinfo->sec->sec_info_type == SEC_INFO_TYPE_MERGE)
 	  secinfo->sec->flags |= SEC_EXCLUDE | SEC_KEEP;
     }
 

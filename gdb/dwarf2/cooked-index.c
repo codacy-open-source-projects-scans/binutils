@@ -215,14 +215,15 @@ cooked_index_entry::matches (domain_search_flags kind) const
 /* See cooked-index.h.  */
 
 const char *
-cooked_index_entry::full_name (struct obstack *storage, bool for_main) const
+cooked_index_entry::full_name (struct obstack *storage, bool for_main,
+			       const char *default_sep) const
 {
   const char *local_name = for_main ? name : canonical;
 
   if ((flags & IS_LINKAGE) != 0 || get_parent () == nullptr)
     return local_name;
 
-  const char *sep = nullptr;
+  const char *sep = default_sep;
   switch (lang)
     {
     case language_cplus:
@@ -237,7 +238,9 @@ cooked_index_entry::full_name (struct obstack *storage, bool for_main) const
       break;
 
     default:
-      return local_name;
+      if (sep == nullptr)
+	return local_name;
+      break;
     }
 
   get_parent ()->write_scope (storage, sep, for_main);
@@ -465,7 +468,7 @@ cooked_index_shard::find (const std::string &name, bool completing) const
 void
 cooked_index_worker::start ()
 {
-  gdb::thread_pool::g_thread_pool->post_task ([=] ()
+  gdb::thread_pool::g_thread_pool->post_task ([this] ()
   {
     try
       {
@@ -650,7 +653,7 @@ cooked_index::set_contents (vec_type &&vec, deferred_warnings *warn,
      finalization.  However, that would take a slot in the global
      thread pool, and if enough such tasks were submitted at once, it
      would cause a livelock.  */
-  gdb::task_group finalizers ([=] ()
+  gdb::task_group finalizers ([this, warn] ()
   {
     m_state->set (cooked_state::FINALIZED);
     m_state->write_to_cache (index_for_writing (), warn);
@@ -799,7 +802,8 @@ cooked_index::dump (gdbarch *arch)
       gdb_printf ("    [%zu] ((cooked_index_entry *) %p)\n", i++, entry);
       gdb_printf ("    name:       %s\n", entry->name);
       gdb_printf ("    canonical:  %s\n", entry->canonical);
-      gdb_printf ("    qualified:  %s\n", entry->full_name (&temp_storage, false));
+      gdb_printf ("    qualified:  %s\n",
+		  entry->full_name (&temp_storage, false, "::"));
       gdb_printf ("    DWARF tag:  %s\n", dwarf_tag_name (entry->tag));
       gdb_printf ("    flags:      %s\n", to_string (entry->flags).c_str ());
       gdb_printf ("    DIE offset: %s\n", sect_offset_str (entry->die_offset));

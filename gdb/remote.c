@@ -3049,7 +3049,7 @@ get_remote_thread_info (thread_info *thread)
   gdb_assert (thread != NULL);
 
   if (thread->priv == NULL)
-    thread->priv.reset (new remote_thread_info);
+    thread->priv = std::make_unique<remote_thread_info> ();
 
   return gdb::checked_static_cast<remote_thread_info *> (thread->priv.get ());
 }
@@ -7099,7 +7099,7 @@ static remote_inferior *
 get_remote_inferior (inferior *inf)
 {
   if (inf->priv == NULL)
-    inf->priv.reset (new remote_inferior);
+    inf->priv = std::make_unique<remote_inferior> ();
 
   return gdb::checked_static_cast<remote_inferior *> (inf->priv.get ());
 }
@@ -9501,7 +9501,7 @@ remote_target::remote_write_bytes_aux (const char *header, CORE_ADDR memaddr,
   strcat (rs->buf.data (), header);
   p = rs->buf.data () + strlen (header);
 
-  /* Compute a best guess of the number of bytes actually transfered.  */
+  /* Compute a best guess of the number of bytes actually transferred.  */
   if (packet_format == 'X')
     {
       /* Best guess at number of bytes that will fit.  */

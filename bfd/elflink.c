@@ -2877,7 +2877,7 @@ _bfd_elf_link_info_read_relocs (bfd *abfd,
   if (keep_memory)
     esdo->relocs = internal_relocs;
 
-  _bfd_munmap_readonly_temporary (alloc1, alloc1_size);
+  _bfd_munmap_temporary (alloc1, alloc1_size);
 
   /* Don't free alloc2, since if it was allocated we are passing it
      back (under the name of internal_relocs).  */
@@ -2885,7 +2885,7 @@ _bfd_elf_link_info_read_relocs (bfd *abfd,
   return internal_relocs;
 
  error_return:
-  _bfd_munmap_readonly_temporary (alloc1, alloc1_size);
+  _bfd_munmap_temporary (alloc1, alloc1_size);
   if (alloc2 != NULL)
     {
       if (keep_memory)
@@ -8109,8 +8109,8 @@ _bfd_elf_merge_sections (bfd *obfd, struct bfd_link_info *info)
   bfd *ibfd;
   asection *sec;
 
-  if (!is_elf_hash_table (info->hash))
-    return false;
+  if (ENABLE_CHECKING && !is_elf_hash_table (info->hash))
+    abort ();
 
   for (ibfd = info->input_bfds; ibfd != NULL; ibfd = ibfd->link.next)
     if ((ibfd->flags & DYNAMIC) == 0
@@ -8133,8 +8133,8 @@ _bfd_elf_merge_sections (bfd *obfd, struct bfd_link_info *info)
 	  }
 
   if (elf_hash_table (info)->merge_info != NULL)
-    _bfd_merge_sections (obfd, info, elf_hash_table (info)->merge_info,
-			 merge_sections_remove_hook);
+    return _bfd_merge_sections (obfd, info, elf_hash_table (info)->merge_info,
+				merge_sections_remove_hook);
   return true;
 }
 
